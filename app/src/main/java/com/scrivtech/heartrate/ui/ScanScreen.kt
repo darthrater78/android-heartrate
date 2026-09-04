@@ -20,6 +20,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -32,13 +33,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.scrivtech.heartrate.BleHeartRateManager
 import com.scrivtech.heartrate.ConnectionState
+import com.scrivtech.heartrate.data.DeviceEntity
+import com.scrivtech.heartrate.data.HeartRateRepository
 import kotlinx.coroutines.delay
 
 @Composable
-fun ScanScreen(bleManager: BleHeartRateManager) {
+fun ScanScreen(
+    bleManager: BleHeartRateManager,
+    repository: HeartRateRepository,
+    onHistoryClick: () -> Unit
+) {
     val state by bleManager.state.collectAsState()
     val devices by bleManager.devices.collectAsState()
     val errorMessage by bleManager.errorMessage.collectAsState()
+    val recentDevices by repository.recentDevices.collectAsState(initial = emptyList())
 
     LaunchedEffect(state) {
         if (state == ConnectionState.SCANNING) {
@@ -72,25 +80,38 @@ fun ScanScreen(bleManager: BleHeartRateManager) {
             lineHeight = 22.sp
         )
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
-        Button(
-            onClick = {
-                if (state == ConnectionState.SCANNING) {
-                    bleManager.stopScan()
-                } else {
-                    bleManager.startScan()
-                }
-            },
-            colors = ButtonDefaults.buttonColors(
-                containerColor = if (state == ConnectionState.SCANNING)
-                    Color(0xFF424242) else Color(0xFFE53935)
-            )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)
         ) {
-            Text(
-                text = if (state == ConnectionState.SCANNING) "Stop Scan" else "Scan for Devices",
-                fontSize = 16.sp
-            )
+            Button(
+                onClick = {
+                    if (state == ConnectionState.SCANNING) {
+                        bleManager.stopScan()
+                    } else {
+                        bleManager.startScan()
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (state == ConnectionState.SCANNING)
+                        Color(0xFF424242) else Color(0xFFE53935)
+                )
+            ) {
+                Text(
+                    text = if (state == ConnectionState.SCANNING) "Stop Scan" else "Scan for Devices",
+                    fontSize = 16.sp
+                )
+            }
+
+            TextButton(onClick = onHistoryClick) {
+                Text(
+                    text = "History",
+                    fontSize = 16.sp,
+                    color = Color.White.copy(alpha = 0.6f)
+                )
+            }
         }
 
         if (state == ConnectionState.SCANNING) {
@@ -123,13 +144,84 @@ fun ScanScreen(bleManager: BleHeartRateManager) {
         Spacer(modifier = Modifier.height(24.dp))
 
         LazyColumn {
-            items(devices, key = { it.address }) { device ->
-                DeviceItem(
-                    device = device,
-                    isPaired = device.bondState == BluetoothDevice.BOND_BONDED,
-                    onClick = { bleManager.connect(device) }
+            if (recentDevices.isNotEmpty() && state != ConnectionState.SCANNING) {
+                item {
+                    Text(
+                        text = "Recent Devices",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White.copy(alpha = 0.5f),
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
+                items(recentDevices, key = { "recent-${it.address}" }) { device ->
+                    RecentDeviceItem(
+                        device = device,
+                        onClick = { bleManager.connectByAddress(device.address) }
+                    )
+                }
+                item {
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+            }
+
+            if (devices.isNotEmpty()) {
+                item {
+                    Text(
+                        text = if (state == ConnectionState.SCANNING) "Discovered Devices"
+                        else "Paired Devices",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White.copy(alpha = 0.5f),
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
+                items(devices, key = { it.address }) { device ->
+                    DeviceItem(
+                        device = device,
+                        isPaired = device.bondState == BluetoothDevice.BOND_BONDED,
+                        onClick = { bleManager.connect(device) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentDeviceItem(device: DeviceEntity, onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1A2A1A))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Text(
+                    text = device.name,
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = formatRelativeTime(device.lastConnected),
+                    color = Color.White.copy(alpha = 0.4f),
+                    fontSize = 12.sp
                 )
             }
+            Text(
+                text = "Reconnect",
+                color = Color(0xFF66BB6A),
+                fontSize = 14.sp
+            )
         }
     }
 }
@@ -161,7 +253,7 @@ private fun DeviceItem(device: BluetoothDevice, isPaired: Boolean, onClick: () -
                 Text(
                     text = if (isPaired) "Paired" else device.address,
                     color = if (isPaired) Color(0xFFE53935).copy(alpha = 0.7f)
-                            else Color.White.copy(alpha = 0.4f),
+                    else Color.White.copy(alpha = 0.4f),
                     fontSize = 12.sp
                 )
             }
@@ -171,5 +263,19 @@ private fun DeviceItem(device: BluetoothDevice, isPaired: Boolean, onClick: () -
                 fontSize = 14.sp
             )
         }
+    }
+}
+
+private fun formatRelativeTime(timestamp: Long): String {
+    val diff = System.currentTimeMillis() - timestamp
+    val minutes = diff / 60_000
+    val hours = minutes / 60
+    val days = hours / 24
+    return when {
+        minutes < 1 -> "Just now"
+        minutes < 60 -> "${minutes}m ago"
+        hours < 24 -> "${hours}h ago"
+        days < 7 -> "${days}d ago"
+        else -> "${days / 7}w ago"
     }
 }

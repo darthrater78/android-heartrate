@@ -15,6 +15,7 @@ import android.content.Context
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import com.scrivtech.heartrate.data.HeartRateRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,7 +26,7 @@ enum class ConnectionState {
 }
 
 @SuppressLint("MissingPermission")
-class BleHeartRateManager(context: Context) {
+class BleHeartRateManager(context: Context, private val repository: HeartRateRepository) {
 
     private val bluetoothManager = context.getSystemService(BluetoothManager::class.java)
     private val bluetoothAdapter = bluetoothManager.adapter
@@ -56,6 +57,9 @@ class BleHeartRateManager(context: Context) {
 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+
+    private var pendingDeviceAddress: String? = null
+    private var pendingDeviceName: String? = null
 
     val isBluetoothEnabled: Boolean
         get() = bluetoothAdapter?.isEnabled == true
@@ -88,7 +92,10 @@ class BleHeartRateManager(context: Context) {
         stopScan()
         _state.value = ConnectionState.CONNECTING
         _errorMessage.value = null
-        _connectedDeviceName.value = device.name ?: device.address
+        val name = device.name ?: device.address
+        _connectedDeviceName.value = name
+        pendingDeviceAddress = device.address
+        pendingDeviceName = name
 
         val isBonded = device.bondState == BluetoothDevice.BOND_BONDED
         val transport = if (isBonded) BluetoothDevice.TRANSPORT_AUTO else BluetoothDevice.TRANSPORT_LE
@@ -97,8 +104,14 @@ class BleHeartRateManager(context: Context) {
         handler.postDelayed(connectionTimeout, 15_000)
     }
 
+    fun connectByAddress(address: String) {
+        val device = bluetoothAdapter?.getRemoteDevice(address) ?: return
+        connect(device)
+    }
+
     fun disconnect() {
         handler.removeCallbacks(connectionTimeout)
+        repository.endSession()
         gatt?.disconnect()
         gatt?.close()
         gatt = null
@@ -135,6 +148,7 @@ class BleHeartRateManager(context: Context) {
                     gatt.discoverServices()
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
+                    repository.endSession()
                     _state.value = ConnectionState.DISCONNECTED
                     _heartRate.value = null
                 }
@@ -181,6 +195,11 @@ class BleHeartRateManager(context: Context) {
                 gatt.writeDescriptor(descriptor)
             }
             _state.value = ConnectionState.CONNECTED
+
+            val addr = pendingDeviceAddress ?: return
+            val name = pendingDeviceName ?: addr
+            repository.saveDevice(addr, name)
+            repository.startSession(addr, name)
         }
 
         override fun onCharacteristicChanged(
@@ -189,7 +208,9 @@ class BleHeartRateManager(context: Context) {
             value: ByteArray
         ) {
             if (characteristic.uuid == HR_MEASUREMENT_UUID) {
-                _heartRate.value = parseHeartRate(value)
+                val bpm = parseHeartRate(value)
+                _heartRate.value = bpm
+                repository.recordHeartRate(bpm)
             }
         }
 
@@ -200,7 +221,11 @@ class BleHeartRateManager(context: Context) {
             characteristic: BluetoothGattCharacteristic
         ) {
             if (characteristic.uuid == HR_MEASUREMENT_UUID) {
-                characteristic.value?.let { _heartRate.value = parseHeartRate(it) }
+                characteristic.value?.let {
+                    val bpm = parseHeartRate(it)
+                    _heartRate.value = bpm
+                    repository.recordHeartRate(bpm)
+                }
             }
         }
     }
