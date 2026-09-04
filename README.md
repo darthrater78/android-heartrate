@@ -38,7 +38,7 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 
 ## Version History
 
-### v1.0.0 — 2026-09-03
+### [v1.0.0](https://github.com/darthrater78/android-heartrate/releases/tag/v1.0.0) — 2026-09-03
 - Initial release
 - BLE scan with paired device support
 - Heart rate display with pulse animation
