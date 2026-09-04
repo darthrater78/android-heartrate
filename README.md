@@ -8,6 +8,11 @@ Android app that displays live heart rate from a BLE heart rate monitor on your 
 - Works with Fitbit, chest straps, and other BLE HR monitors
 - Works with Pixel Watch 3 — requires enabling **"Share heart rate"** in watch Settings to broadcast HR over BLE
 - Large BPM display with pulse animation synced to heart rate
+- HR zone colors — BPM display and graph segments shift from blue (rest) through green, yellow, orange, to red (max) with smooth interpolation
+- Recent devices list — quickly reconnect to previously used devices
+- Session history — stores up to 30 sessions with avg/max/min BPM stats and line graphs
+- Session naming — name sessions on connect (e.g. "Morning Run"), rename or delete later
+- Live session graph — scrolling 5-minute HR graph during active sessions
 - Dark OLED-friendly theme
 - Screen stays on while connected
 
@@ -21,6 +26,15 @@ The Pixel Watch 3 does not broadcast heart rate over BLE by default. To enable i
 
 Without this setting enabled, the watch will not be discoverable by the app.
 
+## Permissions
+
+| Permission | Purpose | Location flag |
+|---|---|---|
+| `BLUETOOTH_SCAN` | Discover nearby BLE heart rate monitors | `neverForLocation` — no location access |
+| `BLUETOOTH_CONNECT` | Connect to and read data from the selected device | — |
+
+No internet, storage, camera, or location permissions are used. The app communicates only over local Bluetooth LE and stores session data in private app storage (SharedPreferences).
+
 ## Requirements
 
 - Android 12+ (API 31)
@@ -30,13 +44,44 @@ Without this setting enabled, the watch will not be discoverable by the app.
 
 Open in Android Studio, then Build > Generate App Bundles or APKs > Generate APKs.
 
+**Command line (requires JDK 17):**
+
+```bash
+# Set environment (adjust paths for your system)
+export JAVA_HOME="C:\Program Files\Android\Android Studio\jbr"
+export ANDROID_HOME="$LOCALAPPDATA\Android\Sdk"
+
+# Debug build
+./gradlew assembleDebug
+
+# Release build (requires signing config)
+./gradlew assembleRelease
+```
+
 Install the debug APK:
 
 ```
 adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
+### Release process
+
+This project uses the [dev-skills](https://github.com/darthrater78/claude-vibe-skills) gate system for releases:
+
+```
+VERSION → BUILD → SECURITY → DOCS → RELEASE → SHIP
+```
+
+Each gate must pass before proceeding to the next. Security scan runs after every build. Commits require explicit approval.
+
 ## Version History
+
+### [v1.1.0](https://github.com/darthrater78/android-heartrate/releases/tag/v1.1.0) — 2026-09-04
+- HR zone colors with smooth interpolation across 5 zones (rest → light → moderate → hard → max)
+- Recent devices list for quick reconnection
+- Session history — stores up to 30 sessions with avg/max/min BPM and line graphs
+- Session naming on connect, with rename and delete support
+- Live scrolling HR graph during active sessions
 
 ### [v1.0.0](https://github.com/darthrater78/android-heartrate/releases/tag/v1.0.0) — 2026-09-03
 - Initial release

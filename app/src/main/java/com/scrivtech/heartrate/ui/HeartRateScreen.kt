@@ -1,5 +1,6 @@
 package com.scrivtech.heartrate.ui
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -7,11 +8,12 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
@@ -30,13 +32,20 @@ import com.scrivtech.heartrate.BleHeartRateManager
 import com.scrivtech.heartrate.ConnectionState
 
 @Composable
-fun HeartRateScreen(bleManager: BleHeartRateManager) {
+fun HeartRateScreen(bleManager: BleHeartRateManager, sessionName: String = "") {
     val state by bleManager.state.collectAsState()
     val heartRate by bleManager.heartRate.collectAsState()
     val deviceName by bleManager.connectedDeviceName.collectAsState()
+    val sessionReadings by bleManager.sessionReadings.collectAsState()
 
     val currentBpm = heartRate ?: 72
     val pulseDuration = (30_000 / currentBpm).coerceIn(150, 1000)
+
+    val animatedBpmColor by animateColorAsState(
+        targetValue = if (heartRate != null) hrZoneColor(heartRate!!) else Color.White,
+        animationSpec = tween(durationMillis = 500),
+        label = "bpmColor"
+    )
 
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val scale by infiniteTransition.animateFloat(
@@ -55,13 +64,25 @@ fun HeartRateScreen(bleManager: BleHeartRateManager) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black),
-        contentAlignment = Alignment.Center
+            .background(Color.Black)
     ) {
         Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.55f)
+                .align(Alignment.TopCenter),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
         ) {
+            if (sessionName.isNotEmpty()) {
+                Text(
+                    text = sessionName,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color.White.copy(alpha = 0.6f)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+            }
             if (deviceName != null) {
                 Text(
                     text = deviceName!!,
@@ -92,13 +113,13 @@ fun HeartRateScreen(bleManager: BleHeartRateManager) {
                         text = "$heartRate",
                         fontSize = 160.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White,
+                        color = animatedBpmColor,
                         modifier = Modifier.scale(scale)
                     )
                     Text(
                         text = "BPM",
                         fontSize = 32.sp,
-                        color = Color.White.copy(alpha = 0.6f)
+                        color = animatedBpmColor.copy(alpha = 0.6f)
                     )
                 }
 
@@ -117,6 +138,20 @@ fun HeartRateScreen(bleManager: BleHeartRateManager) {
                     )
                 }
             }
+        }
+
+        if (sessionReadings.size >= 2 && heartRate != null) {
+            HrGraph(
+                readings = sessionReadings,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(140.dp)
+                    .padding(horizontal = 16.dp)
+                    .align(Alignment.Center)
+                    .padding(top = 60.dp),
+                showZoneColors = true,
+                maxDurationMs = 300_000L
+            )
         }
 
         TextButton(

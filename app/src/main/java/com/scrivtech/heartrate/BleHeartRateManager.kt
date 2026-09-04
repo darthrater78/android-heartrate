@@ -18,6 +18,7 @@ import android.os.Looper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import com.scrivtech.heartrate.data.HrReading
 import java.util.UUID
 
 enum class ConnectionState {
@@ -54,8 +55,17 @@ class BleHeartRateManager(context: Context) {
     private val _connectedDeviceName = MutableStateFlow<String?>(null)
     val connectedDeviceName: StateFlow<String?> = _connectedDeviceName.asStateFlow()
 
+    private val _connectedDeviceAddress = MutableStateFlow<String?>(null)
+    val connectedDeviceAddress: StateFlow<String?> = _connectedDeviceAddress.asStateFlow()
+
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+
+    private val _sessionReadings = MutableStateFlow<List<HrReading>>(emptyList())
+    val sessionReadings: StateFlow<List<HrReading>> = _sessionReadings.asStateFlow()
+
+    var currentSessionStartTime: Long = 0L
+        private set
 
     val isBluetoothEnabled: Boolean
         get() = bluetoothAdapter?.isEnabled == true
@@ -89,6 +99,9 @@ class BleHeartRateManager(context: Context) {
         _state.value = ConnectionState.CONNECTING
         _errorMessage.value = null
         _connectedDeviceName.value = device.name ?: device.address
+        _connectedDeviceAddress.value = device.address
+        _sessionReadings.value = emptyList()
+        currentSessionStartTime = System.currentTimeMillis()
 
         val isBonded = device.bondState == BluetoothDevice.BOND_BONDED
         val transport = if (isBonded) BluetoothDevice.TRANSPORT_AUTO else BluetoothDevice.TRANSPORT_LE
@@ -104,7 +117,6 @@ class BleHeartRateManager(context: Context) {
         gatt = null
         _state.value = ConnectionState.IDLE
         _heartRate.value = null
-        _connectedDeviceName.value = null
         _errorMessage.value = null
     }
 
@@ -189,7 +201,9 @@ class BleHeartRateManager(context: Context) {
             value: ByteArray
         ) {
             if (characteristic.uuid == HR_MEASUREMENT_UUID) {
-                _heartRate.value = parseHeartRate(value)
+                val bpm = parseHeartRate(value)
+                _heartRate.value = bpm
+                recordReading(bpm)
             }
         }
 
@@ -200,9 +214,21 @@ class BleHeartRateManager(context: Context) {
             characteristic: BluetoothGattCharacteristic
         ) {
             if (characteristic.uuid == HR_MEASUREMENT_UUID) {
-                characteristic.value?.let { _heartRate.value = parseHeartRate(it) }
+                characteristic.value?.let {
+                    val bpm = parseHeartRate(it)
+                    _heartRate.value = bpm
+                    recordReading(bpm)
+                }
             }
         }
+    }
+
+    private fun recordReading(bpm: Int) {
+        val reading = HrReading(
+            timestampMs = System.currentTimeMillis() - currentSessionStartTime,
+            bpm = bpm
+        )
+        _sessionReadings.value = _sessionReadings.value + reading
     }
 
     private fun parseHeartRate(data: ByteArray): Int {
