@@ -1,0 +1,26 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Heart shape -->
+    <path
+        android:fillColor="#FFE53935"
+        android:pathData="M54,85
+            C54,85 28,68 22,50
+            C16,32 28,24 38,24
+            C45,24 50,32 54,36
+            C58,32 63,24 70,24
+            C80,24 92,32 86,50
+            C80,68 54,85 54,85Z" />
+
+    <!-- Pulse/ECG line -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2.5"
+        android:fillColor="#00000000"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M30,54 L42,54 L46,44 L50,62 L54,38 L58,66 L62,48 L66,54 L78,54" />
+</vector>
