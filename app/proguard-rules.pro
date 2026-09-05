@@ -17,9 +17,24 @@
     public *;
 }
 
-# Strip debug logging from release builds — Log.d/Log.v output is readable over
-# ADB and by any app on a rooted device.
--assumenosideeffects class android.util.Log {
-    public static int d(...);
-    public static int v(...);
-}
+# Debug logging is deliberately RETAINED in release builds for now.
+#
+# The rule below stripped every Log.d/Log.v call from the release APK. Because
+# BleHeartRateManager traces its entire connection lifecycle through Log.d --
+# onConnectionStateChange, service discovery, cache refresh, notification enable --
+# stripping it left the shipped v1.4.0 APK with exactly one surviving log line
+# (the Log.w on scan failure) and no way to diagnose the connection hang from a
+# logcat. A release build nobody can debug is a worse trade than logs on a device
+# the user already owns.
+#
+# Note this file is only consulted when isMinifyEnabled is true, so keeping the
+# rule commented out matters for the *next* build -- the one that turns
+# minification back on -- not for the current unminified bisect APK.
+#
+# Before restoring it, confirm no lifecycle diagnostics depend on Log.d, or move
+# those to Log.i so the release build keeps a usable trace.
+#
+# -assumenosideeffects class android.util.Log {
+#     public static int d(...);
+#     public static int v(...);
+# }

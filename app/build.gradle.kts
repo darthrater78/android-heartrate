@@ -40,7 +40,20 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
+            // TEMPORARY — R8 bisect for the v1.4.0 "hangs on connection" report.
+            //
+            // isMinifyEnabled has been true since v1.1.0, but every release APK before
+            // v1.4.0 was unsigned and therefore never installable, so v1.4.0 is the first
+            // R8-processed build ever to run on a device. That makes minification an
+            // untested variable sitting underneath the connection bug.
+            //
+            // Flipping this to false isolates it: if the resulting APK connects, R8 is the
+            // culprit and the keep rules in proguard-rules.pro need work. If it still
+            // hangs, R8 is cleared and the fault is in the BLE state machine.
+            //
+            // RESTORE TO true once the bisect has answered that question. Shipping
+            // unminified is a size and reverse-engineering regression, not a fix.
+            isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

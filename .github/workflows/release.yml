@@ -5,7 +5,15 @@ name: Release
 # currently in app/build.gradle.kts, tags it, and publishes a GitHub Release with the APK
 # attached.
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: >-
+          Tag and publish a GitHub Release. Turn OFF to build a signed test APK and
+          attach it to this run as an artifact without tagging or releasing --
+          used for diagnostic builds that must not consume a version number.
+        type: boolean
+        default: true
 
 # Needs to push a tag and create a release, unlike build.yml which only reads.
 permissions:
@@ -19,6 +27,11 @@ jobs:
     steps:
       - name: Check out the branch
         uses: actions/checkout@v4
+        with:
+          # Tags are needed by the duplicate-tag guard below. The default shallow
+          # checkout does not fetch them, which made that guard pass on a tag that
+          # already existed on the remote and pushed the failure down to `git push`.
+          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -40,6 +53,7 @@ jobs:
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Confirm tag does not already exist
+        if: inputs.publish
         run: |
           if git rev-parse "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
             echo "Tag ${{ steps.version.outputs.tag }} already exists. Bump versionName before releasing again." >&2
@@ -65,14 +79,30 @@ jobs:
             echo "No release APK found in app/build/outputs/apk/release" >&2
             exit 1
           fi
-          cp "$apk" "out/heart-rate-mirror-${{ steps.version.outputs.tag }}.apk"
+          # A non-publishing run is a diagnostic build. Name it so it can never be
+          # mistaken for the real released artifact of the same version.
+          if [ "${{ inputs.publish }}" = "true" ]; then
+            name="heart-rate-mirror-${{ steps.version.outputs.tag }}.apk"
+          else
+            name="heart-rate-mirror-${{ steps.version.outputs.tag }}-test.apk"
+          fi
+          cp "$apk" "out/$name"
+
+      - name: Attach APK to this run
+        uses: actions/upload-artifact@v4
+        with:
+          name: heart-rate-mirror-apk
+          path: out/*.apk
+          if-no-files-found: error
 
       - name: Tag the release commit
+        if: inputs.publish
         run: |
           git tag "${{ steps.version.outputs.tag }}"
           git push origin "${{ steps.version.outputs.tag }}"
 
       - name: Create GitHub Release
+        if: inputs.publish
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
