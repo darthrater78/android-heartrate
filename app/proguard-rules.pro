@@ -27,9 +27,10 @@
 # logcat. A release build nobody can debug is a worse trade than logs on a device
 # the user already owns.
 #
-# Note this file is only consulted when isMinifyEnabled is true, so keeping the
-# rule commented out matters for the *next* build -- the one that turns
-# minification back on -- not for the current unminified bisect APK.
+# Note this file is only consulted when isMinifyEnabled is true, which it is not
+# as of v1.4.1 (see app/build.gradle.kts). Keeping the rule commented out matters
+# for the build that turns minification back on -- that build needs a readable
+# logcat to identify which R8 optimization breaks the BLE connection.
 #
 # Before restoring it, confirm no lifecycle diagnostics depend on Log.d, or move
 # those to Log.i so the release build keeps a usable trace.
