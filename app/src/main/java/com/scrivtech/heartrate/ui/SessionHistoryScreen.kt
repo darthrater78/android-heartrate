@@ -253,6 +253,15 @@ private fun SessionCard(session: HrSession, onRename: () -> Unit, onDelete: () -
                         color = Color.White.copy(alpha = 0.6f)
                     )
                     Spacer(modifier = Modifier.height(4.dp))
+                    // Naming happens here rather than at connect, so this needs to be
+                    // visible — tapping the title also works but nothing advertises it.
+                    Text(
+                        text = "Rename",
+                        fontSize = 12.sp,
+                        color = Color.White.copy(alpha = 0.5f),
+                        modifier = Modifier.clickable { onRename() }
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "Delete",
                         fontSize = 12.sp,

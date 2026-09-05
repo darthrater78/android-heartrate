@@ -13,3 +13,9 @@ local.properties
 *.ap_
 *.dex
 *.hprof
+
+# Release signing material must never be committed. Gate 6 signing config reads these
+# from environment variables (CI secrets or a developer's own shell) instead.
+*.keystore
+*.jks
+keystore.properties
