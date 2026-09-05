@@ -52,11 +52,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             val state by bleManager.state.collectAsState()
             var currentScreen by remember { mutableStateOf(Screen.SCAN) }
-            var wasConnected by remember { mutableStateOf(false) }
             // currentScreen and wasConnected both re-derive themselves from state below, so
-            // losing them to a rotation is harmless. The session name cannot be re-derived,
-            // so it lives in the ViewModel.
-            val currentSessionName = viewModel.currentSessionName
+            // losing them to a rotation is harmless.
+            var wasConnected by remember { mutableStateOf(false) }
 
             // CONNECTING and RECONNECTING both count as "still in a session" — a dropped
             // link that the manager is recovering must not bounce the user back to Scan or
@@ -99,10 +97,7 @@ class MainActivity : ComponentActivity() {
 
             HeartRateMirrorTheme {
                 when (currentScreen) {
-                    Screen.HEART_RATE -> HeartRateScreen(
-                        bleManager = bleManager,
-                        sessionName = currentSessionName
-                    )
+                    Screen.HEART_RATE -> HeartRateScreen(bleManager = bleManager)
                     Screen.SESSION_HISTORY -> SessionHistoryScreen(
                         storage = storage,
                         onBack = { currentScreen = Screen.SCAN }
@@ -110,8 +105,7 @@ class MainActivity : ComponentActivity() {
                     Screen.SCAN -> ScanScreen(
                         bleManager = bleManager,
                         storage = storage,
-                        onShowHistory = { currentScreen = Screen.SESSION_HISTORY },
-                        onSessionNameSet = { viewModel.currentSessionName = it }
+                        onShowHistory = { currentScreen = Screen.SESSION_HISTORY }
                     )
                 }
             }

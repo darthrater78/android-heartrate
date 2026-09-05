@@ -16,23 +16,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -51,8 +46,7 @@ import kotlinx.coroutines.delay
 fun ScanScreen(
     bleManager: BleHeartRateManager,
     storage: Storage,
-    onShowHistory: () -> Unit,
-    onSessionNameSet: (String) -> Unit
+    onShowHistory: () -> Unit
 ) {
     val state by bleManager.state.collectAsState()
     val devices by bleManager.devices.collectAsState()
@@ -64,97 +58,11 @@ fun ScanScreen(
         (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
     }
 
-    var pendingDevice by remember { mutableStateOf<BluetoothDevice?>(null) }
-    var pendingRecentDevice by remember { mutableStateOf<RecentDevice?>(null) }
-    var sessionNameInput by remember { mutableStateOf("") }
-
-    val showNamingDialog = pendingDevice != null || pendingRecentDevice != null
-
     LaunchedEffect(state) {
         if (state == ConnectionState.SCANNING) {
             delay(30_000)
             bleManager.stopScan()
         }
-    }
-
-    if (showNamingDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                pendingDevice = null
-                pendingRecentDevice = null
-                sessionNameInput = ""
-            },
-            containerColor = Color(0xFF1E1E1E),
-            title = {
-                Text(
-                    text = "Name This Session",
-                    color = Color.White
-                )
-            },
-            text = {
-                Column {
-                    Text(
-                        text = "Optional — e.g. \"Morning Run\", \"Cycling\"",
-                        fontSize = 13.sp,
-                        color = Color.White.copy(alpha = 0.5f)
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = sessionNameInput,
-                        onValueChange = { sessionNameInput = it },
-                        placeholder = {
-                            Text(
-                                text = "Session name",
-                                color = Color.White.copy(alpha = 0.3f)
-                            )
-                        },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
-                            cursorColor = Color(0xFFE53935),
-                            focusedBorderColor = Color(0xFFE53935),
-                            unfocusedBorderColor = Color.White.copy(alpha = 0.3f)
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        onSessionNameSet(sessionNameInput.trim())
-                        pendingDevice?.let { bleManager.connect(it) }
-                        pendingRecentDevice?.let {
-                            val btDevice = bluetoothAdapter.getRemoteDevice(it.address)
-                            bleManager.connect(btDevice)
-                        }
-                        pendingDevice = null
-                        pendingRecentDevice = null
-                        sessionNameInput = ""
-                    }
-                ) {
-                    Text("Start", color = Color(0xFFE53935))
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        onSessionNameSet("")
-                        pendingDevice?.let { bleManager.connect(it) }
-                        pendingRecentDevice?.let {
-                            val btDevice = bluetoothAdapter.getRemoteDevice(it.address)
-                            bleManager.connect(btDevice)
-                        }
-                        pendingDevice = null
-                        pendingRecentDevice = null
-                        sessionNameInput = ""
-                    }
-                ) {
-                    Text("Skip", color = Color.White.copy(alpha = 0.5f))
-                }
-            }
-        )
     }
 
     Column(
@@ -257,7 +165,9 @@ fun ScanScreen(
                 items(recentDevices, key = { "recent_${it.address}" }) { device ->
                     RecentDeviceItem(
                         device = device,
-                        onClick = { pendingRecentDevice = device }
+                        onClick = {
+                            bleManager.connect(bluetoothAdapter.getRemoteDevice(device.address))
+                        }
                     )
                 }
                 item {
@@ -281,7 +191,7 @@ fun ScanScreen(
                 DeviceItem(
                     device = device,
                     isPaired = device.bondState == BluetoothDevice.BOND_BONDED,
-                    onClick = { pendingDevice = device }
+                    onClick = { bleManager.connect(device) }
                 )
             }
         }

@@ -1,16 +1,13 @@
 package com.scrivtech.heartrate
 
 import android.app.Application
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import com.scrivtech.heartrate.data.HrSession
 import com.scrivtech.heartrate.data.Storage
 import java.util.UUID
 
 /**
- * Owns the BLE connection and the current session across configuration changes.
+ * Owns the BLE connection across configuration changes.
  *
  * Previously the manager was created in [MainActivity.onCreate] and torn down in onDestroy,
  * so rotating the phone dropped a live session. A ViewModel outlives the Activity through a
@@ -22,15 +19,9 @@ class HeartRateViewModel(application: Application) : AndroidViewModel(applicatio
     val storage = Storage(application)
 
     /**
-     * Name the user gave the current session. Backed by Compose state so the UI observes it,
-     * and held here rather than in a `remember` so it survives rotation along with the
-     * connection it describes.
-     */
-    var currentSessionName by mutableStateOf("")
-
-    /**
-     * Writes the session that just ended to history and clears the name, ready for the next
-     * one. A session of fewer than two readings has nothing to graph and is dropped.
+     * Writes the session that just ended to history. Sessions are saved unnamed — the user
+     * names them afterwards from Session History, which shows the date until they do. A
+     * session of fewer than two readings has nothing to graph and is dropped.
      */
     fun saveCompletedSession() {
         val readings = bleManager.sessionReadings.value
@@ -38,7 +29,7 @@ class HeartRateViewModel(application: Application) : AndroidViewModel(applicatio
             storage.saveSession(
                 HrSession(
                     id = UUID.randomUUID().toString(),
-                    sessionName = currentSessionName,
+                    sessionName = "",
                     deviceName = bleManager.connectedDeviceName.value ?: "Unknown",
                     deviceAddress = bleManager.connectedDeviceAddress.value ?: "",
                     startTime = bleManager.currentSessionStartTime,
@@ -50,7 +41,6 @@ class HeartRateViewModel(application: Application) : AndroidViewModel(applicatio
                 )
             )
         }
-        currentSessionName = ""
     }
 
     override fun onCleared() {

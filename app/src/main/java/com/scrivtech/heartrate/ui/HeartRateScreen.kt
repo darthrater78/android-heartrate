@@ -32,7 +32,7 @@ import com.scrivtech.heartrate.BleHeartRateManager
 import com.scrivtech.heartrate.ConnectionState
 
 @Composable
-fun HeartRateScreen(bleManager: BleHeartRateManager, sessionName: String = "") {
+fun HeartRateScreen(bleManager: BleHeartRateManager) {
     val state by bleManager.state.collectAsState()
     val heartRate by bleManager.heartRate.collectAsState()
     val deviceName by bleManager.connectedDeviceName.collectAsState()
@@ -74,15 +74,6 @@ fun HeartRateScreen(bleManager: BleHeartRateManager, sessionName: String = "") {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
         ) {
-            if (sessionName.isNotEmpty()) {
-                Text(
-                    text = sessionName,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = Color.White.copy(alpha = 0.6f)
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-            }
             if (deviceName != null) {
                 Text(
                     text = deviceName!!,

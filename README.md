@@ -10,7 +10,7 @@ Android app that displays live heart rate from a BLE heart rate monitor on your 
 - HR zone colors — BPM display and graph segments shift from blue (rest) through green, yellow, orange, to red (max) with smooth interpolation
 - Recent devices list — quickly reconnect to previously used devices
 - Session history — stores up to 30 sessions with avg/max/min BPM stats and line graphs
-- Session naming — name sessions on connect (e.g. "Morning Run"), rename or delete later
+- Session naming — connect straight away, then name sessions afterwards from Session History (e.g. "Morning Run"); unnamed sessions show their date
 - Live session graph — scrolling 5-minute HR graph during active sessions
 - Automatic reconnection — a dropped link is retried in the background without ending the session or losing the graph
 - Sessions survive rotation and screen-off — the connection runs behind a foreground service
@@ -131,6 +131,15 @@ VERSION → BUILD → SECURITY → DOCS → RELEASE → SHIP
 Each gate must pass before proceeding to the next. Security scan runs after every build. Commits require explicit approval.
 
 ## Version History
+
+### [v1.4.0](https://github.com/darthrater78/android-heartrate/releases/tag/v1.4.0) — 2026-09-05
+
+- Removed the "Name This Session" dialog that appeared on connect. Tapping a device now
+  connects immediately
+- Sessions are named afterwards instead, from Session History. Unnamed sessions show
+  their date and time, so nothing is unlabelled
+- Added a visible "Rename" control to each session card — renaming previously worked only
+  by tapping the session title, which nothing advertised
 
 ### [v1.3.0](https://github.com/darthrater78/android-heartrate/releases/tag/v1.3.0) — 2026-09-05
 
