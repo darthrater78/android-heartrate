@@ -9,10 +9,8 @@ class Storage(context: Context) {
     private val prefs = context.applicationContext
         .getSharedPreferences("heartrate_data", Context.MODE_PRIVATE)
 
-    fun getRecentDevices(): List<RecentDevice> {
-        val json = prefs.getString(KEY_RECENT_DEVICES, null) ?: return emptyList()
-        val array = JSONArray(json)
-        return (0 until array.length()).map { i ->
+    fun getRecentDevices(): List<RecentDevice> = readList(KEY_RECENT_DEVICES) { array ->
+        (0 until array.length()).map { i ->
             val obj = array.getJSONObject(i)
             RecentDevice(
                 name = obj.getString("name"),
@@ -39,10 +37,8 @@ class Storage(context: Context) {
         prefs.edit().putString(KEY_RECENT_DEVICES, array.toString()).apply()
     }
 
-    fun getSessions(): List<HrSession> {
-        val json = prefs.getString(KEY_SESSIONS, null) ?: return emptyList()
-        val array = JSONArray(json)
-        return (0 until array.length()).map { i ->
+    fun getSessions(): List<HrSession> = readList(KEY_SESSIONS) { array ->
+        (0 until array.length()).map { i ->
             val obj = array.getJSONObject(i)
             val readingsArray = obj.getJSONArray("readings")
             val readings = (0 until readingsArray.length()).map { r ->
@@ -78,6 +74,21 @@ class Storage(context: Context) {
         writeSessions(getSessions().map { s ->
             if (s.id == sessionId) s.copy(sessionName = newName) else s
         })
+    }
+
+    /**
+     * Reads and parses one stored JSON array, yielding an empty list if it cannot be read.
+     *
+     * A truncated or hand-edited blob previously threw JSONException straight out of the
+     * composable that calls this, crashing the app on launch with no way back in. There is
+     * nothing to salvage from malformed JSON, but starting empty beats not starting.
+     */
+    private fun <T> readList(key: String, parse: (JSONArray) -> List<T>): List<T> {
+        val json = prefs.getString(key, null) ?: return emptyList()
+        return runCatching { parse(JSONArray(json)) }.getOrElse {
+            android.util.Log.w("HeartRateMirror", "Discarding unreadable '$key' data", it)
+            emptyList()
+        }
     }
 
     private fun writeSessions(sessions: List<HrSession>) {

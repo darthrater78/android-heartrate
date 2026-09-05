@@ -1,6 +1,7 @@
 package com.scrivtech.heartrate
 
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
@@ -11,7 +12,10 @@ import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -175,6 +179,10 @@ class BleHeartRateManager(context: Context) {
      */
     private fun openGatt(delayMs: Long) {
         val device = targetDevice ?: return
+        if (!isBluetoothEnabled) {
+            failConnection("Bluetooth is off. Turn it on and try again.")
+            return
+        }
         closeGatt()
         discoveryAttempt = 0
         handler.removeCallbacks(connectionTimeout)
@@ -451,6 +459,58 @@ class BleHeartRateManager(context: Context) {
             (data[1].toInt() and 0xFF) or ((data[2].toInt() and 0xFF) shl 8)
         } else {
             data[1].toInt() and 0xFF
+        }
+    }
+
+    // ------------------------------------------------------- adapter lifecycle
+
+    /**
+     * Watches for the user switching Bluetooth off. Without this the manager keeps handles
+     * the stack has already torn down, and the reconnect ladder burns its whole budget
+     * retrying against a radio that is not there.
+     */
+    private val adapterStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
+            val adapterState =
+                intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
+            if (adapterState == BluetoothAdapter.STATE_TURNING_OFF ||
+                adapterState == BluetoothAdapter.STATE_OFF
+            ) {
+                handler.post { handleBluetoothOff() }
+            }
+        }
+    }
+
+    private fun handleBluetoothOff() {
+        android.util.Log.d(TAG, "Bluetooth turned off, tearing down")
+        pendingConnect = null
+        handler.removeCallbacksAndMessages(null)
+        closeGatt()
+        _heartRate.value = null
+        _devices.value = emptyList()
+        // Clearing the target stops the reconnect ladder: there is nothing to reconnect to
+        // until the radio comes back, and the user has to pick a device again anyway.
+        targetDevice = null
+
+        if (_state.value != ConnectionState.IDLE) {
+            _errorMessage.value = "Bluetooth was turned off."
+            _state.value = ConnectionState.DISCONNECTED
+        }
+    }
+
+    /** Tears down for good. Call from the owning ViewModel's onCleared. */
+    fun release() {
+        runCatching { appContext.unregisterReceiver(adapterStateReceiver) }
+        disconnect()
+    }
+
+    init {
+        val filter = IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            appContext.registerReceiver(adapterStateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            appContext.registerReceiver(adapterStateReceiver, filter)
         }
     }
 

@@ -13,6 +13,7 @@ Android app that displays live heart rate from a BLE heart rate monitor on your 
 - Session naming — name sessions on connect (e.g. "Morning Run"), rename or delete later
 - Live session graph — scrolling 5-minute HR graph during active sessions
 - Automatic reconnection — a dropped link is retried in the background without ending the session or losing the graph
+- Sessions survive rotation and screen-off — the connection runs behind a foreground service
 - Dark OLED-friendly theme
 - Screen stays on while connected
 
@@ -53,8 +54,13 @@ Fitbit OS devices (everything except Pixel Watch) lock heart rate data to the Fi
 |---|---|---|
 | `BLUETOOTH_SCAN` | Discover nearby BLE heart rate monitors | `neverForLocation` — no location access |
 | `BLUETOOTH_CONNECT` | Connect to and read data from the selected device | — |
+| `FOREGROUND_SERVICE` | Keep the app running for the length of a session | — |
+| `FOREGROUND_SERVICE_CONNECTED_DEVICE` | Required from Android 14 for the session service type | — |
+| `POST_NOTIFICATIONS` | Show the "session running" notification (Android 13+) | — |
 
 No internet, storage, camera, or location permissions are used. The app communicates only over local Bluetooth LE and stores session data in private app storage (SharedPreferences).
+
+Denying the notification permission does not break anything — the session service still runs, it just has no visible notification.
 
 ## Requirements
 
@@ -96,6 +102,25 @@ VERSION → BUILD → SECURITY → DOCS → RELEASE → SHIP
 Each gate must pass before proceeding to the next. Security scan runs after every build. Commits require explicit approval.
 
 ## Version History
+
+### [v1.3.0](https://github.com/darthrater78/android-heartrate/releases/tag/v1.3.0) — 2026-09-05
+
+Session durability release. Follows on from v1.2.0's connection fixes by keeping a
+session alive through the things that used to end it.
+
+- Sessions survive screen rotation — the BLE connection moved into a ViewModel, so
+  rotating the phone no longer tears down an active session
+- Added a foreground service for the duration of a session, so Doze and background
+  execution limits can no longer drop the connection once the screen goes off
+- Bluetooth being switched off mid-session is now detected and reported, instead of
+  leaving the app retrying against a radio that is not there
+- Connecting while Bluetooth is off now fails immediately with a clear message
+- Session names survive rotation along with the connection
+- Fixed a crash on launch when stored session data was corrupt or truncated — the
+  unreadable data is discarded and the app starts with an empty history
+
+**Known limitation:** the session ends if you dismiss the app from Recents. The
+foreground service covers screen-off and backgrounding, not full task removal.
 
 ### [v1.2.0](https://github.com/darthrater78/android-heartrate/releases/tag/v1.2.0) — 2026-09-05
 
