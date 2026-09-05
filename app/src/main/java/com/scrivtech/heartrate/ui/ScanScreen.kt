@@ -226,7 +226,7 @@ fun ScanScreen(
         if (state == ConnectionState.DISCONNECTED) {
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = "Connection lost. Scan to reconnect.",
+                text = errorMessage ?: "Connection lost. Scan to reconnect.",
                 color = Color(0xFFE53935),
                 fontSize = 14.sp
             )

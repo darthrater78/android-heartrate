@@ -12,6 +12,7 @@ Android app that displays live heart rate from a BLE heart rate monitor on your 
 - Session history — stores up to 30 sessions with avg/max/min BPM stats and line graphs
 - Session naming — name sessions on connect (e.g. "Morning Run"), rename or delete later
 - Live session graph — scrolling 5-minute HR graph during active sessions
+- Automatic reconnection — a dropped link is retried in the background without ending the session or losing the graph
 - Dark OLED-friendly theme
 - Screen stays on while connected
 
@@ -24,6 +25,10 @@ The Pixel Watch 3 does not broadcast heart rate over BLE by default. To enable i
 3. The watch will now appear in the app's BLE scan
 
 Without this setting enabled, the watch will not be discoverable by the app.
+
+If you turn "Share heart rate" on *after* the app has already connected, the app drops
+Android's cached service list and rediscovers automatically. Earlier versions required
+restarting the app in that situation.
 
 ## Device Compatibility
 
@@ -40,7 +45,7 @@ This app requires a device that broadcasts the **standard BLE Heart Rate Service
 | Samsung Galaxy Watch 3 and older | No | Ran Tizen OS — no standard BLE HR support and no third-party workaround |
 | **Fitbit Inspire, Charge, Versa, Sense, Luxe** | **No** | Fitbit OS devices use proprietary BLE services and do not expose standard HR |
 
-Fitbit OS devices (everything except Pixel Watch) lock heart rate data to the Fitbit ecosystem. They will pair and connect, but the app will report "No Heart Rate service found." This is a Fitbit firmware limitation, not an app bug.
+Fitbit OS devices (everything except Pixel Watch) lock heart rate data to the Fitbit ecosystem. They will pair and connect, but after retrying discovery the app will report "No Heart Rate service found." This is a Fitbit firmware limitation, not an app bug.
 
 ## Permissions
 
@@ -91,6 +96,31 @@ VERSION → BUILD → SECURITY → DOCS → RELEASE → SHIP
 Each gate must pass before proceeding to the next. Security scan runs after every build. Commits require explicit approval.
 
 ## Version History
+
+### [v1.2.0](https://github.com/darthrater78/android-heartrate/releases/tag/v1.2.0) — 2026-09-05
+
+Connection reliability release. Fixes the case where the app had to be restarted after
+enabling heart rate sharing on the watch.
+
+- Fixed a GATT client leak — every disconnect, failed connect, and reconnect previously
+  held onto an Android Bluetooth client handle. Once the per-app pool was exhausted, all
+  further connections failed until the app was force-stopped. This was the main cause of
+  "restart the app and it works"
+- Stale service cache is now dropped and rediscovered when the Heart Rate service is
+  missing, so enabling HR sharing after connecting no longer requires a restart
+- Connection attempts retry with backoff instead of failing on the first error — status
+  133 is the Bluetooth stack's generic "try again", not a real fault
+- Added a settling delay between stopping the scan and opening a connection, a common
+  source of spurious connection failures
+- "Connected" is now reported only after notifications are confirmed enabled, instead of
+  showing a connected screen that never displays a reading
+- Automatic reconnection after an unexpected drop, with a "Reconnecting..." state that
+  keeps the session and its graph intact
+- Bluetooth scan failures are now surfaced instead of failing silently
+- Heart rate readings are bounds-checked, so a malformed packet can no longer skew a
+  session's min/max or the graph scale
+- Added the missing `proguard-rules.pro` that release builds referenced but that was
+  never committed — `assembleRelease` could not have succeeded without it
 
 ### [v1.1.0](https://github.com/darthrater78/android-heartrate/releases/tag/v1.1.0) — 2026-09-04
 - HR zone colors with smooth interpolation across 5 zones (rest → light → moderate → hard → max)

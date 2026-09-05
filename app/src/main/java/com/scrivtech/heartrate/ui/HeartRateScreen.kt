@@ -93,7 +93,8 @@ fun HeartRateScreen(bleManager: BleHeartRateManager, sessionName: String = "") {
             }
 
             when {
-                state == ConnectionState.CONNECTING -> {
+                state == ConnectionState.CONNECTING ||
+                    state == ConnectionState.RECONNECTING -> {
                     Text(
                         text = "--",
                         fontSize = 120.sp,
@@ -102,7 +103,11 @@ fun HeartRateScreen(bleManager: BleHeartRateManager, sessionName: String = "") {
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Connecting...",
+                        text = if (state == ConnectionState.RECONNECTING) {
+                            "Reconnecting..."
+                        } else {
+                            "Connecting..."
+                        },
                         fontSize = 18.sp,
                         color = Color.White.copy(alpha = 0.5f)
                     )
@@ -140,7 +145,9 @@ fun HeartRateScreen(bleManager: BleHeartRateManager, sessionName: String = "") {
             }
         }
 
-        if (sessionReadings.size >= 2 && heartRate != null) {
+        // Keep the trace on screen while the manager reconnects — the session is still
+        // running, so blanking the graph would make a brief dropout look like a reset.
+        if (sessionReadings.size >= 2) {
             HrGraph(
                 readings = sessionReadings,
                 modifier = Modifier

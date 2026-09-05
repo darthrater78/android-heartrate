@@ -51,17 +51,18 @@ class MainActivity : ComponentActivity() {
             var wasConnected by remember { mutableStateOf(false) }
             var currentSessionName by remember { mutableStateOf("") }
 
+            // CONNECTING and RECONNECTING both count as "still in a session" — a dropped
+            // link that the manager is recovering must not bounce the user back to Scan or
+            // close out the session partway through.
+            val inSession = state == ConnectionState.CONNECTING ||
+                state == ConnectionState.RECONNECTING ||
+                state == ConnectionState.CONNECTED
+
             LaunchedEffect(state) {
-                when (state) {
-                    ConnectionState.CONNECTING,
-                    ConnectionState.CONNECTED -> {
-                        currentScreen = Screen.HEART_RATE
-                    }
-                    else -> {
-                        if (currentScreen == Screen.HEART_RATE) {
-                            currentScreen = Screen.SCAN
-                        }
-                    }
+                if (inSession) {
+                    currentScreen = Screen.HEART_RATE
+                } else if (currentScreen == Screen.HEART_RATE) {
+                    currentScreen = Screen.SCAN
                 }
             }
 
@@ -75,10 +76,10 @@ class MainActivity : ComponentActivity() {
                     if (name != null && address != null) {
                         storage.addRecentDevice(name, address)
                     }
-                } else {
+                } else if (!inSession) {
                     window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-                    if (wasConnected && state != ConnectionState.CONNECTING) {
+                    if (wasConnected) {
                         wasConnected = false
                         val readings = bleManager.sessionReadings.value
                         if (readings.size >= 2) {
