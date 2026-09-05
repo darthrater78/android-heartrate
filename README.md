@@ -5,9 +5,10 @@ Android app that displays live heart rate from a BLE heart rate monitor on your 
 ## Features
 
 - Connects to any standard BLE Heart Rate Profile (0x180D) device
-- Works with Fitbit, chest straps, and other BLE HR monitors
-- Works with Pixel Watch 3 — requires enabling **"Share heart rate"** in watch Settings to broadcast HR over BLE
+- Works with Pixel Watch (1/2/3), Polar, Garmin, and BLE chest straps
 - Large BPM display with pulse animation synced to heart rate
+- Device history with quick reconnect
+- Heart rate session recording with stats and chart
 - Dark OLED-friendly theme
 - Screen stays on while connected
 
@@ -20,6 +21,23 @@ The Pixel Watch 3 does not broadcast heart rate over BLE by default. To enable i
 3. The watch will now appear in the app's BLE scan
 
 Without this setting enabled, the watch will not be discoverable by the app.
+
+## Device Compatibility
+
+This app requires a device that broadcasts the **standard BLE Heart Rate Service (0x180D)**. Not all wearables support this.
+
+| Device | Works? | Notes |
+|---|---|---|
+| Pixel Watch 1/2/3 | Yes | Enable "Share heart rate" in watch Settings |
+| Polar (Vantage, Pacer, Grit X) | Yes | Enable "HR broadcast" mode in watch settings |
+| Garmin (select models) | Yes | Enable "Broadcast Heart Rate" in watch settings |
+| BLE chest straps (Polar H10, Garmin HRM, Wahoo TICKR) | Yes | Broadcast by default |
+| BLE arm bands (Polar Verity Sense, Scosche Rhythm+) | Yes | Broadcast by default |
+| Samsung Galaxy Watch 4/5/6/7 | Likely | Wear OS — check for HR sharing in Samsung Health or watch settings |
+| Samsung Galaxy Watch 3 and older | Unknown | Ran Tizen OS — may not support standard BLE HR |
+| **Fitbit Inspire, Charge, Versa, Sense, Luxe** | **No** | Fitbit OS devices use proprietary BLE services and do not expose standard HR |
+
+Fitbit OS devices (everything except Pixel Watch) lock heart rate data to the Fitbit ecosystem. They will pair and connect, but the app will report "No Heart Rate service found." This is a Fitbit firmware limitation, not an app bug.
 
 ## Requirements
 
