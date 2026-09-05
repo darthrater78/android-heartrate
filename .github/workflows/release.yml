@@ -95,6 +95,18 @@ jobs:
           path: out/*.apk
           if-no-files-found: error
 
+      # R8's own account of what it renamed (mapping.txt), kept (seeds.txt) and removed
+      # (usage.txt). Only produced when minification is on, and only collected on a
+      # non-publishing run: mapping.txt is the deobfuscation key, so it must not be
+      # attached to a public release.
+      - name: Attach R8 mapping output to this run
+        if: ${{ !inputs.publish }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: r8-mapping
+          path: app/build/outputs/mapping/release/
+          if-no-files-found: ignore
+
       - name: Tag the release commit
         if: inputs.publish
         run: |

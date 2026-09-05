@@ -40,24 +40,22 @@ android {
 
     buildTypes {
         release {
-            // Minification is OFF because R8 breaks the BLE connection. This is a
-            // deliberate, temporary trade, not an oversight.
+            // EXPERIMENT -- do not publish this build. Minification is back ON to find
+            // what actually broke v1.4.0.
             //
-            // v1.4.0 was the first R8-processed APK ever to run on a device:
-            // isMinifyEnabled had been true since v1.1.0, but every release build before
-            // it was unsigned and therefore uninstallable, so the setting had never
-            // actually been exercised. v1.4.0 hung on connect; an unminified build of the
-            // identical commit connects normally, which isolates R8 as the cause.
+            // v1.4.0 hung on connect and shipped minified. v1.4.1 connects and shipped
+            // unminified -- but v1.4.1 also stopped stripping Log.d/Log.v, so two things
+            // moved at once and "R8 broke it" is not yet a precise claim. This build
+            // separates them: minification on, log stripping still off (proguard-rules.pro).
             //
-            // The specific rule at fault is not yet known. proguard-rules.pro already
-            // keeps the BluetoothGattCallback and ScanCallback members, so something else
-            // in the optimize pass is breaking the connection path. Until that is
-            // root-caused, shipping unminified is the right call: this app has no secrets,
-            // no auth and no server, so obfuscation buys little here, and minSdk 31 makes
-            // multidex native so there is no method-count risk.
+            //   connects -> the culprit was -assumenosideeffects on android.util.Log, and
+            //               v1.4.2 can ship minified AND debuggable at roughly 2.2 MB
+            //   hangs    -> minification itself is at fault; bisect on from here with
+            //               -dontoptimize, then -dontobfuscate, reading the logcat between
             //
-            // RESTORE TO true once the missing keep rule is found.
-            isMinifyEnabled = false
+            // Build with the Release workflow's publish input OFF, so this produces a test
+            // APK as a run artifact without consuming a version number.
+            isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
