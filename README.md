@@ -62,6 +62,35 @@ No internet, storage, camera, or location permissions are used. The app communic
 
 Denying the notification permission does not break anything — the session service still runs, it just has no visible notification.
 
+## Data Storage and Privacy
+
+Nothing leaves the device. There is no internet permission, no analytics, and no account.
+
+Session history — heart rate readings, timestamps, session names, and the paired device's
+name and address — is written to app-private `SharedPreferences` at
+`/data/data/com.scrivtech.heartrate/shared_prefs/heartrate_data.xml`. Individual sessions
+can be deleted from the Session History screen.
+
+That file is **not encrypted at rest by the app**. This is a deliberate decision, recorded
+here so it is not rediscovered as an oversight:
+
+- `MODE_PRIVATE` limits the file to the app's own UID; no other installed app can read it
+- `allowBackup="false"` keeps it out of Google Drive and `adb backup`
+- Release builds are not debuggable, so `run-as` cannot reach it
+- Android's file-based encryption keeps it unreadable until the device is first unlocked
+  after boot
+
+The remaining exposure is an attacker with root, physical forensic access, or malware that
+already has root. Encrypting with `EncryptedSharedPreferences` was considered and rejected:
+Jetpack Security Crypto (`androidx.security:security-crypto`) is deprecated, and a
+Keystore-backed key that becomes invalid — after a restore to new hardware, or some
+lock-screen changes — makes the store throw on open, trading readable data for a
+crash on launch and a lost history.
+
+Reconsider this if the app ever stores something that grants access to anything else, such
+as an account token or a cloud sync credential. Heart rate history on its own does not
+justify the trade.
+
 ## Requirements
 
 - Android 12+ (API 31)
