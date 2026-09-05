@@ -23,8 +23,8 @@ android {
         applicationId = "com.scrivtech.heartrate"
         minSdk = 31
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.4.0"
+        versionCode = 6
+        versionName = "1.4.1"
     }
 
     signingConfigs {
@@ -40,7 +40,24 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
+            // Minification is OFF because R8 breaks the BLE connection. This is a
+            // deliberate, temporary trade, not an oversight.
+            //
+            // v1.4.0 was the first R8-processed APK ever to run on a device:
+            // isMinifyEnabled had been true since v1.1.0, but every release build before
+            // it was unsigned and therefore uninstallable, so the setting had never
+            // actually been exercised. v1.4.0 hung on connect; an unminified build of the
+            // identical commit connects normally, which isolates R8 as the cause.
+            //
+            // The specific rule at fault is not yet known. proguard-rules.pro already
+            // keeps the BluetoothGattCallback and ScanCallback members, so something else
+            // in the optimize pass is breaking the connection path. Until that is
+            // root-caused, shipping unminified is the right call: this app has no secrets,
+            // no auth and no server, so obfuscation buys little here, and minSdk 31 makes
+            // multidex native so there is no method-count risk.
+            //
+            // RESTORE TO true once the missing keep rule is found.
+            isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

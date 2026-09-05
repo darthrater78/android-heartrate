@@ -130,7 +130,35 @@ VERSION → BUILD → SECURITY → DOCS → RELEASE → SHIP
 
 Each gate must pass before proceeding to the next. Security scan runs after every build. Commits require explicit approval.
 
+Releases are built by the **Release** workflow in the Actions tab, which reads the version from
+`app/build.gradle.kts`, builds a signed APK, tags it, and publishes a GitHub Release. It takes
+one input:
+
+- **publish** (default on) — tag and publish a GitHub Release. Turn it **off** to build a
+  signed test APK and attach it to the run as an artifact instead, without tagging or
+  consuming a version number. Use this for diagnostic builds.
+
 ## Version History
+
+### [v1.4.1](https://github.com/darthrater78/android-heartrate/releases/tag/v1.4.1) — 2026-09-05
+
+Hotfix for v1.4.0, which hung on connect.
+
+- Disabled R8 minification for release builds. v1.4.0 was the first minified APK ever to
+  reach a device — `isMinifyEnabled` had been on since v1.1.0, but every release build before
+  it was unsigned and therefore uninstallable, so the setting had never actually been
+  exercised. An unminified build of the identical commit connects normally, which isolates
+  R8 as the cause
+- Release builds now keep their `Log.d`/`Log.v` output instead of stripping it. The entire
+  BLE connection lifecycle is traced through `Log.d`, so stripping it left the shipped APK
+  with a single usable log line and no way to diagnose the hang from a logcat
+- The release workflow can now build a signed test APK and attach it to the run as an
+  artifact without tagging or publishing, so diagnostic builds no longer consume a version
+  number
+
+**Known limitation:** release builds are unminified until the specific R8 rule at fault is
+identified. The APK is larger and is not obfuscated. This app has no secrets, authentication,
+or server, so the practical exposure is that the code is easier to read.
 
 ### [v1.4.0](https://github.com/darthrater78/android-heartrate/releases/tag/v1.4.0) — 2026-09-05
 
