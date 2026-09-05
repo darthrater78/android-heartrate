@@ -33,8 +33,8 @@ This app requires a device that broadcasts the **standard BLE Heart Rate Service
 | Garmin (select models) | Yes | Enable "Broadcast Heart Rate" in watch settings |
 | BLE chest straps (Polar H10, Garmin HRM, Wahoo TICKR) | Yes | Broadcast by default |
 | BLE arm bands (Polar Verity Sense, Scosche Rhythm+) | Yes | Broadcast by default |
-| Samsung Galaxy Watch 4/5/6/7 | Likely | Wear OS — check for HR sharing in Samsung Health or watch settings |
-| Samsung Galaxy Watch 3 and older | Unknown | Ran Tizen OS — may not support standard BLE HR |
+| Samsung Galaxy Watch 4/5/6/7 | With app | No native BLE HR broadcast — install a Wear OS app like "Heart for Bluetooth" or "HR2VP" to enable it |
+| Samsung Galaxy Watch 3 and older | No | Ran Tizen OS — no standard BLE HR support and no third-party workaround |
 | **Fitbit Inspire, Charge, Versa, Sense, Luxe** | **No** | Fitbit OS devices use proprietary BLE services and do not expose standard HR |
 
 Fitbit OS devices (everything except Pixel Watch) lock heart rate data to the Fitbit ecosystem. They will pair and connect, but the app will report "No Heart Rate service found." This is a Fitbit firmware limitation, not an app bug.
