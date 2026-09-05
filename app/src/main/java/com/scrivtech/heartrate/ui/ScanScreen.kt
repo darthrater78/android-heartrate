@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -32,10 +33,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.scrivtech.heartrate.BleHeartRateManager
+import com.scrivtech.heartrate.BuildConfig
 import com.scrivtech.heartrate.ConnectionState
 import com.scrivtech.heartrate.data.RecentDevice
 import com.scrivtech.heartrate.data.Storage
@@ -151,7 +155,9 @@ fun ScanScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        LazyColumn {
+        // weight(1f) lets the device list take the remaining height so the version
+        // footer stays pinned to the bottom instead of floating under a short list.
+        LazyColumn(modifier = Modifier.weight(1f)) {
             if (recentDevices.isNotEmpty()) {
                 item {
                     Text(
@@ -195,8 +201,68 @@ fun ScanScreen(
                 )
             }
         }
+
+        AppVersionFooter()
     }
 }
+
+/**
+ * Version line and outbound links, shown at the foot of the scan screen.
+ *
+ * The version comes from [BuildConfig.VERSION_NAME] rather than a literal, so it and the
+ * release-notes URL both follow versionName in app/build.gradle.kts and cannot go stale on
+ * the next bump. The release-notes link 404s until that version's release is published,
+ * which is the intended behaviour: the link is correct for the build it ships in.
+ */
+@Composable
+private fun AppVersionFooter() {
+    val uriHandler = LocalUriHandler.current
+    val version = BuildConfig.VERSION_NAME
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp, bottom = 4.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "v$version",
+            color = Color.White.copy(alpha = 0.4f),
+            fontSize = 12.sp
+        )
+        FooterSeparator()
+        FooterLink("Release notes") {
+            uriHandler.openUri("$REPO_URL/releases/tag/v$version")
+        }
+        FooterSeparator()
+        FooterLink("GitHub") {
+            uriHandler.openUri(REPO_URL)
+        }
+    }
+}
+
+@Composable
+private fun FooterSeparator() {
+    Text(
+        text = "  ·  ",
+        color = Color.White.copy(alpha = 0.25f),
+        fontSize = 12.sp
+    )
+}
+
+@Composable
+private fun FooterLink(label: String, onClick: () -> Unit) {
+    Text(
+        text = label,
+        color = Color(0xFFE53935).copy(alpha = 0.8f),
+        fontSize = 12.sp,
+        textDecoration = TextDecoration.Underline,
+        modifier = Modifier.clickable(onClick = onClick)
+    )
+}
+
+private const val REPO_URL = "https://github.com/darthrater78/android-heartrate"
 
 @Composable
 private fun RecentDeviceItem(device: RecentDevice, onClick: () -> Unit) {

@@ -140,6 +140,26 @@ one input:
 
 ## Version History
 
+### [v1.5.0](https://github.com/darthrater78/android-heartrate/releases/tag/v1.5.0) — 2026-09-05
+
+- The scan screen now shows the app version, with links to the repository and to that
+  version's release notes. The version is read from `BuildConfig`, so both the label and the
+  release-notes link follow `versionName` and cannot go stale on a bump
+- Re-enabled R8 minification, taking the APK from 18.07 MB back to 2.23 MB — an 8.1×
+  reduction. v1.4.0's connection hang was never caused by minification. It was caused by
+  `-assumenosideeffects` stripping `Log.d`/`Log.v`; a minified build with only that rule
+  removed connects normally, verified on a real device
+- Fixed `gradle.properties`, which set `org.gradle.jvm.args` — not a real Gradle property.
+  It was silently ignored, so every build since v1.0.0 ran on the daemon's 512 MiB default
+  heap rather than the intended 2 GB. Corrected to `org.gradle.jvmargs` and raised to 4 GB,
+  which is what R8 needs to minify Compose without the garbage collector thrashing
+- The release workflow now collects R8's mapping, seeds and usage reports as run artifacts
+  on non-publishing builds, so what R8 removed can be inspected directly
+
+**Note:** release builds deliberately keep their `Log.d`/`Log.v` output. Restoring
+`-assumenosideeffects` on `android.util.Log` reintroduces the v1.4.0 hang — see
+`app/proguard-rules.pro` for the mechanism.
+
 ### [v1.4.1](https://github.com/darthrater78/android-heartrate/releases/tag/v1.4.1) — 2026-09-05
 
 Hotfix for v1.4.0, which hung on connect.
@@ -159,6 +179,7 @@ Hotfix for v1.4.0, which hung on connect.
 **Known limitation:** release builds are unminified until the specific R8 rule at fault is
 identified. The APK is larger and is not obfuscated. This app has no secrets, authentication,
 or server, so the practical exposure is that the code is easier to read.
+*Resolved in v1.5.0 — minification restored once the rule was identified.*
 
 ### [v1.4.0](https://github.com/darthrater78/android-heartrate/releases/tag/v1.4.0) — 2026-09-05
 

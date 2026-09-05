@@ -23,8 +23,8 @@ android {
         applicationId = "com.scrivtech.heartrate"
         minSdk = 31
         targetSdk = 35
-        versionCode = 6
-        versionName = "1.4.1"
+        versionCode = 7
+        versionName = "1.5.0"
     }
 
     signingConfigs {
@@ -40,21 +40,17 @@ android {
 
     buildTypes {
         release {
-            // EXPERIMENT -- do not publish this build. Minification is back ON to find
-            // what actually broke v1.4.0.
+            // Minification is ON. It was never what broke v1.4.0.
             //
-            // v1.4.0 hung on connect and shipped minified. v1.4.1 connects and shipped
-            // unminified -- but v1.4.1 also stopped stripping Log.d/Log.v, so two things
-            // moved at once and "R8 broke it" is not yet a precise claim. This build
-            // separates them: minification on, log stripping still off (proguard-rules.pro).
+            // v1.4.0 hung on connect and shipped minified, so minification looked guilty and
+            // v1.4.1 shipped unminified at 18 MB to stop the bleeding. But v1.4.1 changed two
+            // things at once: it disabled minification AND stopped stripping Log.d/Log.v.
+            // Testing those separately settled it -- a minified build with log stripping off
+            // connects normally on a real device, at 2.2 MB.
             //
-            //   connects -> the culprit was -assumenosideeffects on android.util.Log, and
-            //               v1.4.2 can ship minified AND debuggable at roughly 2.2 MB
-            //   hangs    -> minification itself is at fault; bisect on from here with
-            //               -dontoptimize, then -dontobfuscate, reading the logcat between
-            //
-            // Build with the Release workflow's publish input OFF, so this produces a test
-            // APK as a run artifact without consuming a version number.
+            // The culprit is -assumenosideeffects on android.util.Log, which stays commented
+            // out in proguard-rules.pro. Do not restore it without re-testing the connection
+            // on a real device; that file records the likely mechanism.
             isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -77,6 +73,11 @@ android {
 
     buildFeatures {
         compose = true
+        // AGP 8 stopped generating BuildConfig unless asked. The scan screen reads
+        // VERSION_NAME from it so the version shown in the UI and the release-notes
+        // link both track the version above, rather than being hardcoded and going
+        // stale on the next bump.
+        buildConfig = true
     }
 }
 
