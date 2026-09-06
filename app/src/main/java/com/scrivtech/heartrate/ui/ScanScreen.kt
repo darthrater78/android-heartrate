@@ -313,10 +313,13 @@ private fun AppVersionFooter() {
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
+        // Stays the most legible thing in the footer. The links were what needed to
+        // recede; the version is the one part worth being able to read off a screenshot
+        // when someone reports a problem.
         Text(
             text = "v$version",
-            color = Color.White.copy(alpha = 0.3f),
-            fontSize = 11.sp
+            color = Color.White.copy(alpha = 0.5f),
+            fontSize = 12.sp
         )
         FooterSeparator()
         FooterLink("Release notes") {
