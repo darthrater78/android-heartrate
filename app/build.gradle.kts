@@ -23,8 +23,8 @@ android {
         applicationId = "com.scrivtech.heartrate"
         minSdk = 31
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.5.0"
+        versionCode = 8
+        versionName = "1.5.1"
     }
 
     signingConfigs {
@@ -48,17 +48,20 @@ android {
             // waiting on BLE notifications, so optimisation buys no measurable speed, and the
             // repository is public, so obfuscation protects nothing.
             //
-            // Against that, minification has twice cost real diagnostic effort. v1.4.0 shipped
-            // minified and hung on connect; it was eventually traced to -assumenosideeffects
-            // on android.util.Log (still commented out in proguard-rules.pro, and it should
-            // stay that way). A later minified build then failed a device test for reasons
-            // never established. Both investigations were spent buying a smaller APK that
-            // nobody needed.
+            // Against that, minification cost three releases of diagnostic effort while
+            // being innocent the whole time. v1.4.0 shipped minified and hung on connect,
+            // which looked damning. The real fault was a BLE race in BleHeartRateManager:
+            // discoverServices() was called synchronously from the connection callback, and
+            // minification only ever changed how fast execution reached that line. v1.5.0
+            // proved it -- an unminified release build still failed, while a debug build of
+            // the same commit worked every time. v1.5.1 fixed the race directly.
             //
-            // If you turn this back on, you are re-opening that thread. It needs repeated
-            // connection trials on a real device to prove anything -- a single successful
-            // connect is not evidence, which is the specific mistake that produced the
-            // confident and wrong conclusion this comment replaces.
+            // So this could probably be turned back on safely now. It still is not worth it:
+            // the size buys nothing here, and the last three times someone reasoned about
+            // this setting they reasoned wrong. If you do re-open it, it needs repeated
+            // connection trials on a real device -- a single successful connect is not
+            // evidence, which is the specific mistake that produced two confident and wrong
+            // conclusions before this one.
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
