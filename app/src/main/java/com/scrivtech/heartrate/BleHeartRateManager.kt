@@ -336,7 +336,28 @@ class BleHeartRateManager(context: Context) {
             // The timeout stays armed until notifications are confirmed — discovery and the
             // descriptor write can both stall after the link itself is up.
             android.util.Log.d(TAG, "Connected, discovering services...")
-            gatt.discoverServices()
+
+            // Discovery is deliberately delayed rather than called straight from this
+            // callback. Asking the stack for services the instant the link comes up is a
+            // known Android BLE race that returns an empty or stale service list, and this
+            // app spent three releases losing it:
+            //
+            //   debug build      slowest (debuggable, JIT)   always worked
+            //   v1.4.1/v1.5.0    fast (release, logs kept)   intermittent
+            //   v1.4.0           fastest (logs stripped)     always hung
+            //
+            // Minification looked guilty for a long time, but it was only ever a proxy for
+            // how quickly execution reached this line. The Log.d call above was acting as
+            // an accidental delay; stripping it in v1.4.0 removed the last of the margin.
+            // This makes the wait explicit so correctness no longer depends on how fast
+            // the build happens to run.
+            //
+            // The identity guard matches the rediscovery path below: a teardown inside the
+            // delay window nulls or replaces `this.gatt`, and discovering on a closed
+            // client would throw.
+            handler.postDelayed({
+                if (this.gatt === gatt) gatt.discoverServices()
+            }, SERVICE_DISCOVERY_DELAY_MS)
         }
     }
 
@@ -389,14 +410,24 @@ class BleHeartRateManager(context: Context) {
         // CONNECTED is deferred to onDescriptorWrite: until the descriptor write lands the
         // watch is not actually pushing measurements, and reporting success here produced a
         // connected screen that never showed a number.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
-        } else {
-            @Suppress("DEPRECATION")
-            descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-            @Suppress("DEPRECATION")
-            gatt.writeDescriptor(descriptor)
-        }
+        //
+        // Delayed for the same reason as discovery above. setCharacteristicNotification only
+        // sets a local flag; the descriptor write is the operation that actually reaches the
+        // peer, and issuing it in the same breath is the second instance of the pattern that
+        // made this app's connection depend on execution speed. The wait is shorter because
+        // the link is already established by this point.
+        handler.postDelayed({
+            if (this.gatt !== gatt) return@postDelayed
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+            } else {
+                @Suppress("DEPRECATION")
+                descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                @Suppress("DEPRECATION")
+                gatt.writeDescriptor(descriptor)
+            }
+        }, CCCD_WRITE_DELAY_MS)
     }
 
     private fun handleNotificationsEnabled(status: Int) {
@@ -522,6 +553,14 @@ class BleHeartRateManager(context: Context) {
         private const val RETRY_BACKOFF_MS = 1_000L
         private const val RECONNECT_BACKOFF_MS = 2_000L
         private const val DISCOVERY_RETRY_DELAY_MS = 600L
+
+        // Settle times that keep the GATT sequence off the stack's races. Both are paid once
+        // per connection and sit well inside CONNECT_TIMEOUT_MS, so the cost is under a
+        // second of extra connect time in exchange for the sequence no longer depending on
+        // how fast the build executes. 600ms matches DISCOVERY_RETRY_DELAY_MS, which has
+        // been reliable on the rediscovery path.
+        private const val SERVICE_DISCOVERY_DELAY_MS = 600L
+        private const val CCCD_WRITE_DELAY_MS = 200L
 
         // A reconnect round spends up to MAX_CONNECT_ATTEMPTS tries, so the ladders multiply:
         // 3 x 3 attempts with growing backoff is roughly 40s of recovery before giving up.

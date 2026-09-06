@@ -30,19 +30,25 @@
 # Minification is now off for good (see app/build.gradle.kts), so the question is
 # moot unless someone deliberately re-opens it.
 #
-# Likely mechanism, inferred rather than proven: the log calls were acting as an
-# accidental delay. BleHeartRateManager calls gatt.discoverServices() directly inside
-# onConnectionStateChange, and calling it too soon after the link comes up is a
-# known Android BLE race that yields an empty or stale service list. Log.d writes to
-# the log socket, which is not free; strip it and discovery fires microseconds
-# earlier, into the race. That matches the symptom -- the hang is silent, and the
-# missing-HR-service path is exactly where it would stall.
+# Mechanism, now confirmed. The log calls were acting as an accidental delay.
+# BleHeartRateManager called gatt.discoverServices() directly inside
+# onConnectionStateChange, and calling it too soon after the link comes up is a known
+# Android BLE race that yields an empty or stale service list. Log.d writes to the log
+# socket, which is not free; strip it and discovery fires microseconds earlier, into
+# the race.
 #
-# If that mechanism is right, the connection currently works partly by accident and
-# the durable fix is an explicit delay before discoverServices() rather than relying
-# on log-call timing. Until that is implemented and verified on a real device,
-# leave this commented out. Restoring it without re-testing the connection on
-# hardware will reintroduce the v1.4.0 hang.
+# What settled it was v1.5.0: an UNMINIFIED release build that still failed
+# intermittently, while a debug build of the identical commit worked every time. Debug
+# builds are slower (debuggable, JIT, unoptimised) and so lose the race reliably.
+# Minification was never the cause -- it was only ever a proxy for execution speed.
+#
+# v1.5.1 makes the wait explicit: discovery is posted to the main handler after a
+# settle delay, as is the CCCD descriptor write. Connection correctness no longer
+# depends on how fast the build runs.
+#
+# That does NOT make this rule safe to restore. It removes the log output that is the
+# only way to diagnose the BLE lifecycle on a shipped build, for no benefit while
+# minification is off. Leave it commented out.
 #
 # -assumenosideeffects class android.util.Log {
 #     public static int d(...);

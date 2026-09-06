@@ -147,6 +147,29 @@ one input:
 
 ## Version History
 
+### [v1.5.1](https://github.com/darthrater78/android-heartrate/releases/tag/v1.5.1) — 2026-09-06
+
+Fixes the intermittent connection failure that had been misattributed to R8 since v1.4.0.
+
+- `discoverServices()` is no longer called synchronously from inside the connection
+  callback. Asking the Bluetooth stack for services the instant the link comes up is a
+  known Android race that returns an empty or stale service list. It is now posted to the
+  main handler after a 600 ms settle, with the same identity guard the rediscovery path
+  already used, so a teardown inside the delay window cannot discover on a closed client
+- The CCCD descriptor write is delayed by 200 ms after
+  `setCharacteristicNotification` for the same reason — the second instance of the pattern
+
+**Why this took three releases to find.** The fault was never minification; minification
+was only ever a proxy for how fast execution reached the racing line. Debug builds are
+slow enough (`debuggable`, JIT, unoptimised) to lose the race reliably and so always
+worked. Release builds are fast enough to sometimes win it, which is what breaks the
+connection. v1.4.0 stripped `Log.d`, removing the accidental delay those calls provided,
+and failed hardest of all. The decisive evidence was v1.5.0: an **unminified** release
+build that still failed while the debug build of the identical commit worked perfectly.
+
+The timing dependency is now explicit rather than incidental, so connection correctness
+no longer varies with build type.
+
 ### [v1.5.0](https://github.com/darthrater78/android-heartrate/releases/tag/v1.5.0) — 2026-09-06
 
 - Heart rate zones, defined as Google Health defines them: Below zones (under 50% of
