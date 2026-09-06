@@ -1,11 +1,16 @@
 name: Build
 
-# Compiles the app on every push and pull request. GitHub's Linux runners ship with
-# the Android SDK already installed, so there is nothing to set up beyond a JDK.
+# Compiles the app on every push. GitHub's Linux runners ship with the Android SDK
+# already installed, so there is nothing to set up beyond a JDK.
+#
+# There is deliberately no `pull_request` trigger: every branch lives in this repo,
+# so a push-triggered run already shows up as a check on any PR for that branch.
+# Subscribing to both events would build the same commit twice. Restore
+# `pull_request:` if this repo ever accepts contributions from forks, since pushes
+# to a fork do not fire `push` here.
 on:
   push:
     branches: ['**']
-  pull_request:
   workflow_dispatch:
 
 # The job only reads the repository and uploads an artifact; it never writes back.
