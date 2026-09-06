@@ -23,8 +23,8 @@ android {
         applicationId = "com.scrivtech.heartrate"
         minSdk = 31
         targetSdk = 35
-        versionCode = 6
-        versionName = "1.4.1"
+        versionCode = 7
+        versionName = "1.5.0"
     }
 
     signingConfigs {
@@ -40,23 +40,25 @@ android {
 
     buildTypes {
         release {
-            // Minification is OFF because R8 breaks the BLE connection. This is a
-            // deliberate, temporary trade, not an oversight.
+            // Minification is OFF, deliberately. The APK is ~18 MB instead of ~2.2 MB.
             //
-            // v1.4.0 was the first R8-processed APK ever to run on a device:
-            // isMinifyEnabled had been true since v1.1.0, but every release build before
-            // it was unsigned and therefore uninstallable, so the setting had never
-            // actually been exercised. v1.4.0 hung on connect; an unminified build of the
-            // identical commit connects normally, which isolates R8 as the cause.
+            // That size costs nothing here: this app is sideloaded onto personal phones, so
+            // there is no store limit, no download budget, and no user paying for the bytes.
+            // R8's other benefits are just as irrelevant -- the app spends its life idle
+            // waiting on BLE notifications, so optimisation buys no measurable speed, and the
+            // repository is public, so obfuscation protects nothing.
             //
-            // The specific rule at fault is not yet known. proguard-rules.pro already
-            // keeps the BluetoothGattCallback and ScanCallback members, so something else
-            // in the optimize pass is breaking the connection path. Until that is
-            // root-caused, shipping unminified is the right call: this app has no secrets,
-            // no auth and no server, so obfuscation buys little here, and minSdk 31 makes
-            // multidex native so there is no method-count risk.
+            // Against that, minification has twice cost real diagnostic effort. v1.4.0 shipped
+            // minified and hung on connect; it was eventually traced to -assumenosideeffects
+            // on android.util.Log (still commented out in proguard-rules.pro, and it should
+            // stay that way). A later minified build then failed a device test for reasons
+            // never established. Both investigations were spent buying a smaller APK that
+            // nobody needed.
             //
-            // RESTORE TO true once the missing keep rule is found.
+            // If you turn this back on, you are re-opening that thread. It needs repeated
+            // connection trials on a real device to prove anything -- a single successful
+            // connect is not evidence, which is the specific mistake that produced the
+            // confident and wrong conclusion this comment replaces.
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -79,6 +81,11 @@ android {
 
     buildFeatures {
         compose = true
+        // AGP 8 stopped generating BuildConfig unless asked. The scan screen reads
+        // VERSION_NAME from it so the version shown in the UI and the release-notes
+        // link both track the version above, rather than being hardcoded and going
+        // stale on the next bump.
+        buildConfig = true
     }
 }
 

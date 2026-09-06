@@ -16,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.scrivtech.heartrate.data.Storage
+import com.scrivtech.heartrate.data.maxHrForAge
 import com.scrivtech.heartrate.ui.HeartRateScreen
 import com.scrivtech.heartrate.ui.ScanScreen
 import com.scrivtech.heartrate.ui.SessionHistoryScreen
@@ -55,6 +56,11 @@ class MainActivity : ComponentActivity() {
             // currentScreen and wasConnected both re-derive themselves from state below, so
             // losing them to a rotation is harmless.
             var wasConnected by remember { mutableStateOf(false) }
+            // Held here rather than read inside each screen so that setting an age on the
+            // scan screen immediately gives the live screen its zones, without a round
+            // trip back through storage on every recomposition.
+            var age by remember { mutableStateOf(storage.getAge()) }
+            val maxHr = age?.let { maxHrForAge(it) }
 
             // CONNECTING and RECONNECTING both count as "still in a session" — a dropped
             // link that the manager is recovering must not bounce the user back to Scan or
@@ -97,7 +103,10 @@ class MainActivity : ComponentActivity() {
 
             HeartRateMirrorTheme {
                 when (currentScreen) {
-                    Screen.HEART_RATE -> HeartRateScreen(bleManager = bleManager)
+                    Screen.HEART_RATE -> HeartRateScreen(
+                        bleManager = bleManager,
+                        maxHr = maxHr
+                    )
                     Screen.SESSION_HISTORY -> SessionHistoryScreen(
                         storage = storage,
                         onBack = { currentScreen = Screen.SCAN }
@@ -105,6 +114,11 @@ class MainActivity : ComponentActivity() {
                     Screen.SCAN -> ScanScreen(
                         bleManager = bleManager,
                         storage = storage,
+                        age = age,
+                        onAgeChange = {
+                            storage.setAge(it)
+                            age = it
+                        },
                         onShowHistory = { currentScreen = Screen.SESSION_HISTORY }
                     )
                 }

@@ -17,23 +17,32 @@
     public *;
 }
 
-# Debug logging is deliberately RETAINED in release builds for now.
+# DO NOT RESTORE THE RULE BELOW. It is what broke v1.4.0.
 #
-# The rule below stripped every Log.d/Log.v call from the release APK. Because
-# BleHeartRateManager traces its entire connection lifecycle through Log.d --
-# onConnectionStateChange, service discovery, cache refresh, notification enable --
-# stripping it left the shipped v1.4.0 APK with exactly one surviving log line
-# (the Log.w on scan failure) and no way to diagnose the connection hang from a
-# logcat. A release build nobody can debug is a worse trade than logs on a device
-# the user already owns.
+# The rule stripped every Log.d/Log.v call from the release APK. v1.4.0 shipped with
+# it enabled and hung on connect; the app reached the connecting screen and never
+# left it. Minification was assumed to be the cause and v1.4.1 shipped unminified at
+# 18 MB. A minified build with only this rule removed then connected normally on a
+# real device, at 2.2 MB -- but that was one successful connection, and the fault is
+# intermittent, so it settles nothing. Treat this rule as the known cause of the
+# v1.4.0 hang and minification itself as untested either way.
 #
-# Note this file is only consulted when isMinifyEnabled is true, which it is not
-# as of v1.4.1 (see app/build.gradle.kts). Keeping the rule commented out matters
-# for the build that turns minification back on -- that build needs a readable
-# logcat to identify which R8 optimization breaks the BLE connection.
+# Minification is now off for good (see app/build.gradle.kts), so the question is
+# moot unless someone deliberately re-opens it.
 #
-# Before restoring it, confirm no lifecycle diagnostics depend on Log.d, or move
-# those to Log.i so the release build keeps a usable trace.
+# Likely mechanism, inferred rather than proven: the log calls were acting as an
+# accidental delay. BleHeartRateManager calls gatt.discoverServices() directly inside
+# onConnectionStateChange, and calling it too soon after the link comes up is a
+# known Android BLE race that yields an empty or stale service list. Log.d writes to
+# the log socket, which is not free; strip it and discovery fires microseconds
+# earlier, into the race. That matches the symptom -- the hang is silent, and the
+# missing-HR-service path is exactly where it would stall.
+#
+# If that mechanism is right, the connection currently works partly by accident and
+# the durable fix is an explicit delay before discoverServices() rather than relying
+# on log-call timing. Until that is implemented and verified on a real device,
+# leave this commented out. Restoring it without re-testing the connection on
+# hardware will reintroduce the v1.4.0 hang.
 #
 # -assumenosideeffects class android.util.Log {
 #     public static int d(...);

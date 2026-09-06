@@ -8,8 +8,10 @@ Android app that displays live heart rate from a BLE heart rate monitor on your 
 - Works with Pixel Watch (1/2/3), Polar, Garmin, and BLE chest straps
 - Large BPM display with pulse animation synced to heart rate
 - HR zone colors — BPM display and graph segments shift from blue (rest) through green, yellow, orange, to red (max) with smooth interpolation
+- Heart rate zones — Below zones / Fat Burn / Cardio / Peak, defined as percentages of your maximum heart rate the same way Google Health defines them. Set your age once and the app derives your maximum as 220 minus age
+- Time in zone — how long you spent in each zone, live during the session and again in the session summary, with a one-line note on what training in your current zone achieves
 - Recent devices list — quickly reconnect to previously used devices
-- Session history — stores up to 30 sessions with avg/max/min BPM stats and line graphs
+- Session history — stores up to 30 sessions with avg/max/min BPM stats, time-in-zone breakdowns, and line graphs
 - Session naming — connect straight away, then name sessions afterwards from Session History (e.g. "Morning Run"); unnamed sessions show their date
 - Live session graph — scrolling 5-minute HR graph during active sessions
 - Automatic reconnection — a dropped link is retried in the background without ending the session or losing the graph
@@ -70,6 +72,11 @@ Session history — heart rate readings, timestamps, session names, and the pair
 name and address — is written to app-private `SharedPreferences` at
 `/data/data/com.scrivtech.heartrate/shared_prefs/heartrate_data.xml`. Individual sessions
 can be deleted from the Session History screen.
+
+Your age is stored in the same file, as a single integer, because heart rate zones are
+percentages of a maximum derived from it. It is never sent anywhere, and the app asks for
+nothing else about you — no name, weight, sex, or date of birth. Leaving it unset is
+supported: the app hides every zone feature rather than assuming an age.
 
 That file is **not encrypted at rest by the app**. This is a deliberate decision, recorded
 here so it is not rediscovered as an oversight:
@@ -140,6 +147,41 @@ one input:
 
 ## Version History
 
+### [v1.5.0](https://github.com/darthrater78/android-heartrate/releases/tag/v1.5.0) — 2026-09-06
+
+- Heart rate zones, defined as Google Health defines them: Below zones (under 50% of
+  maximum), Fat Burn (50–69%), Cardio (70–84%) and Peak (85% and above). Enter your age
+  once on the scan screen and the app derives your maximum as 220 minus age, showing the
+  derived number rather than hiding it
+- Time in each zone, shown live under the BPM readout during a session and again in each
+  session summary. Both read from one shared calculation, so the live figures and the saved
+  ones cannot disagree. Gaps longer than 10 seconds are not counted, so a dropped
+  connection does not quietly become training time
+- The live screen names your current zone and what training there achieves, so the
+  "where should I be" question is answerable at a glance mid-workout
+- Time in zone is derived from each session's stored readings at display time, so sessions
+  recorded before you set an age gain their breakdowns as soon as you set one, and
+  correcting your age re-scores the whole history
+- Session History is now a card showing how many sessions are saved, rather than a dim
+  text link below the scan button
+- The version line and its repository and release-notes links are quieter — neutral
+  coloured and no longer underlined, so they stop competing with the session history
+- The scan screen shows the app version, with links to the repository and to that
+  version's release notes. The version is read from `BuildConfig`, so both the label and
+  the release-notes link follow `versionName` and cannot go stale on a bump
+- Fixed `gradle.properties`, which set `org.gradle.jvm.args` — not a real Gradle property.
+  It was silently ignored, so every build since v1.0.0 ran on the daemon's 512 MiB default
+  heap rather than the intended 2 GB. Corrected to `org.gradle.jvmargs` and raised to 4 GB
+
+**On minification:** release builds remain unminified, and this is now a settled decision
+rather than a temporary workaround. The APK is roughly 18 MB instead of 2.2 MB, which costs
+nothing for a sideloaded personal app with no store limit, no download budget, no
+meaningful optimisation to gain, and public source that obfuscation would not protect.
+Minification has twice cost real diagnostic effort in exchange for those bytes. Release
+builds also deliberately keep their `Log.d`/`Log.v` output; restoring
+`-assumenosideeffects` on `android.util.Log` reintroduces the v1.4.0 hang — see
+`app/proguard-rules.pro`.
+
 ### [v1.4.1](https://github.com/darthrater78/android-heartrate/releases/tag/v1.4.1) — 2026-09-05
 
 Hotfix for v1.4.0, which hung on connect.
@@ -156,9 +198,10 @@ Hotfix for v1.4.0, which hung on connect.
   artifact without tagging or publishing, so diagnostic builds no longer consume a version
   number
 
-**Known limitation:** release builds are unminified until the specific R8 rule at fault is
-identified. The APK is larger and is not obfuscated. This app has no secrets, authentication,
-or server, so the practical exposure is that the code is easier to read.
+**Known limitation:** release builds are unminified. The APK is larger and is not
+obfuscated. This app has no secrets, authentication, or server, so the practical exposure is
+that the code is easier to read.
+*Still the case as of v1.5.0, now by choice rather than as a workaround — see that entry.*
 
 ### [v1.4.0](https://github.com/darthrater78/android-heartrate/releases/tag/v1.4.0) — 2026-09-05
 

@@ -34,6 +34,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.scrivtech.heartrate.data.HrSession
 import com.scrivtech.heartrate.data.Storage
+import com.scrivtech.heartrate.data.maxHrForAge
+import com.scrivtech.heartrate.data.timeInZones
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -46,6 +48,10 @@ fun SessionHistoryScreen(
     BackHandler { onBack() }
 
     var sessions by remember { mutableStateOf(storage.getSessions()) }
+    // Zones are derived at render time from the stored readings, so sessions recorded
+    // before an age was set still show a breakdown once one is, and changing the age
+    // re-scores the whole history rather than leaving old sessions on stale bands.
+    val maxHr = remember { storage.getAge()?.let { maxHrForAge(it) } }
     var renamingSession by remember { mutableStateOf<HrSession?>(null) }
     var renameInput by remember { mutableStateOf("") }
     var deletingSession by remember { mutableStateOf<HrSession?>(null) }
@@ -191,6 +197,7 @@ fun SessionHistoryScreen(
                 items(sessions, key = { it.id }) { session ->
                     SessionCard(
                         session = session,
+                        maxHr = maxHr,
                         onRename = {
                             renamingSession = session
                             renameInput = session.sessionName
@@ -205,7 +212,12 @@ fun SessionHistoryScreen(
 }
 
 @Composable
-private fun SessionCard(session: HrSession, onRename: () -> Unit, onDelete: () -> Unit) {
+private fun SessionCard(
+    session: HrSession,
+    maxHr: Int?,
+    onRename: () -> Unit,
+    onDelete: () -> Unit
+) {
     val dateFormat = remember { SimpleDateFormat("MMM d, yyyy  h:mm a", Locale.getDefault()) }
     val dateStr = remember(session.startTime) { dateFormat.format(Date(session.startTime)) }
     val durationStr = remember(session.durationMs) { formatDuration(session.durationMs) }
@@ -282,6 +294,20 @@ private fun SessionCard(session: HrSession, onRename: () -> Unit, onDelete: () -
                 StatItem("Min", session.minBpm)
             }
 
+            if (maxHr != null) {
+                val zoneTimes = remember(session.id, maxHr) {
+                    timeInZones(session.readings, maxHr)
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Time in zones",
+                    fontSize = 12.sp,
+                    color = Color.White.copy(alpha = 0.4f)
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                ZoneBreakdown(timeInZones = zoneTimes)
+            }
+
             if (session.readings.size >= 2) {
                 Spacer(modifier = Modifier.height(12.dp))
                 HrGraph(
@@ -311,17 +337,5 @@ private fun StatItem(label: String, value: Int) {
             fontSize = 11.sp,
             color = Color.White.copy(alpha = 0.4f)
         )
-    }
-}
-
-private fun formatDuration(ms: Long): String {
-    val totalSeconds = ms / 1000
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
-    val seconds = totalSeconds % 60
-    return when {
-        hours > 0 -> "${hours}h ${minutes}m"
-        minutes > 0 -> "${minutes}m ${seconds}s"
-        else -> "${seconds}s"
     }
 }
