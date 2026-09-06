@@ -23,19 +23,19 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.scrivtech.heartrate.BleHeartRateManager
@@ -43,6 +43,7 @@ import com.scrivtech.heartrate.BuildConfig
 import com.scrivtech.heartrate.ConnectionState
 import com.scrivtech.heartrate.data.RecentDevice
 import com.scrivtech.heartrate.data.Storage
+import com.scrivtech.heartrate.data.maxHrForAge
 import kotlinx.coroutines.delay
 
 @SuppressLint("MissingPermission")
@@ -50,16 +51,32 @@ import kotlinx.coroutines.delay
 fun ScanScreen(
     bleManager: BleHeartRateManager,
     storage: Storage,
+    age: Int?,
+    onAgeChange: (Int) -> Unit,
     onShowHistory: () -> Unit
 ) {
     val state by bleManager.state.collectAsState()
     val devices by bleManager.devices.collectAsState()
     val errorMessage by bleManager.errorMessage.collectAsState()
     val recentDevices = remember { storage.getRecentDevices() }
-    val hasSessions = remember { storage.getSessions().isNotEmpty() }
+    val sessionCount = remember { storage.getSessions().size }
+    val hasSessions = sessionCount > 0
+    var editingAge by remember { mutableStateOf(false) }
     val context = LocalContext.current
+
     val bluetoothAdapter = remember {
         (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+    }
+
+    if (editingAge) {
+        AgeDialog(
+            initialAge = age,
+            onDismiss = { editingAge = false },
+            onSave = {
+                onAgeChange(it)
+                editingAge = false
+            }
+        )
     }
 
     LaunchedEffect(state) {
@@ -115,14 +132,48 @@ fun ScanScreen(
             )
         }
 
+        // Previously a dim text link that read as a footnote next to the scan button.
+        // Past sessions are the main reason to open the app when not about to train, so
+        // this is a card with the same weight as a device row, and it says how much is in
+        // there rather than making the user open it to find out.
         if (hasSessions) {
-            Spacer(modifier = Modifier.height(8.dp))
-            TextButton(onClick = onShowHistory) {
-                Text(
-                    text = "Session History",
-                    color = Color.White.copy(alpha = 0.5f),
-                    fontSize = 14.sp
-                )
+            Spacer(modifier = Modifier.height(20.dp))
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onShowHistory() },
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Session History",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = if (sessionCount == 1) {
+                                "1 saved session"
+                            } else {
+                                "$sessionCount saved sessions"
+                            },
+                            fontSize = 12.sp,
+                            color = Color.White.copy(alpha = 0.45f)
+                        )
+                    }
+                    Text(
+                        text = "›",
+                        fontSize = 24.sp,
+                        color = Color(0xFFE53935).copy(alpha = 0.8f)
+                    )
+                }
             }
         }
 
@@ -202,7 +253,43 @@ fun ScanScreen(
             }
         }
 
+        ZoneSettingsRow(age = age, onClick = { editingAge = true })
+
         AppVersionFooter()
+    }
+}
+
+/**
+ * Entry point for the one setting the zone model needs.
+ *
+ * With no age set this is a prompt rather than a status line, because until it is answered
+ * every zone feature in the app is silently absent and nothing else would explain why.
+ * Once set it recedes to a status line, showing the derived maximum so the number behind
+ * the zones is inspectable rather than magic.
+ */
+@Composable
+private fun ZoneSettingsRow(age: Int?, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (age == null) {
+            Text(
+                text = "Set your age to see heart rate zones",
+                color = Color(0xFFE53935).copy(alpha = 0.85f),
+                fontSize = 13.sp
+            )
+        } else {
+            Text(
+                text = "Zones for age $age  ·  max ${maxHrForAge(age)} bpm",
+                color = Color.White.copy(alpha = 0.4f),
+                fontSize = 12.sp
+            )
+        }
     }
 }
 
@@ -228,8 +315,8 @@ private fun AppVersionFooter() {
     ) {
         Text(
             text = "v$version",
-            color = Color.White.copy(alpha = 0.4f),
-            fontSize = 12.sp
+            color = Color.White.copy(alpha = 0.3f),
+            fontSize = 11.sp
         )
         FooterSeparator()
         FooterLink("Release notes") {
@@ -246,18 +333,24 @@ private fun AppVersionFooter() {
 private fun FooterSeparator() {
     Text(
         text = "  ·  ",
-        color = Color.White.copy(alpha = 0.25f),
-        fontSize = 12.sp
+        color = Color.White.copy(alpha = 0.2f),
+        fontSize = 11.sp
     )
 }
 
+/**
+ * Deliberately quiet: neutral rather than accent-coloured, and not underlined.
+ *
+ * These links are for the rare occasion someone wants the source or the changelog, but
+ * red-and-underlined gave them more pull than the session history sitting above them.
+ * They stay tappable and legible; they just stop competing.
+ */
 @Composable
 private fun FooterLink(label: String, onClick: () -> Unit) {
     Text(
         text = label,
-        color = Color(0xFFE53935).copy(alpha = 0.8f),
-        fontSize = 12.sp,
-        textDecoration = TextDecoration.Underline,
+        color = Color.White.copy(alpha = 0.35f),
+        fontSize = 11.sp,
         modifier = Modifier.clickable(onClick = onClick)
     )
 }

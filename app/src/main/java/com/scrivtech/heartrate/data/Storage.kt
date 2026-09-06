@@ -9,6 +9,20 @@ class Storage(context: Context) {
     private val prefs = context.applicationContext
         .getSharedPreferences("heartrate_data", Context.MODE_PRIVATE)
 
+    /**
+     * Age in years, or null when none has been set.
+     *
+     * Zones are percentages of a maximum heart rate derived from age, so without this
+     * there is nothing to compute them from. Callers must treat null as "zones
+     * unavailable" and hide them rather than substituting a default age, which would
+     * quietly show every user someone else's zones.
+     */
+    fun getAge(): Int? = prefs.getInt(KEY_AGE, 0).takeIf { it in MIN_AGE..MAX_AGE }
+
+    fun setAge(age: Int) {
+        prefs.edit().putInt(KEY_AGE, age.coerceIn(MIN_AGE, MAX_AGE)).apply()
+    }
+
     fun getRecentDevices(): List<RecentDevice> = readList(KEY_RECENT_DEVICES) { array ->
         (0 until array.length()).map { i ->
             val obj = array.getJSONObject(i)
@@ -120,7 +134,13 @@ class Storage(context: Context) {
     companion object {
         private const val KEY_RECENT_DEVICES = "recent_devices"
         private const val KEY_SESSIONS = "sessions"
+        private const val KEY_AGE = "age_years"
         private const val MAX_RECENT_DEVICES = 7
         private const val MAX_SESSIONS = 30
+
+        // Bounds the age entry field shares, so validation and storage agree. Wide enough
+        // to be nobody's business, narrow enough to reject a mistyped year of birth.
+        const val MIN_AGE = 10
+        const val MAX_AGE = 120
     }
 }

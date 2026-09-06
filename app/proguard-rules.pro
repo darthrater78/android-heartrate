@@ -22,8 +22,13 @@
 # The rule stripped every Log.d/Log.v call from the release APK. v1.4.0 shipped with
 # it enabled and hung on connect; the app reached the connecting screen and never
 # left it. Minification was assumed to be the cause and v1.4.1 shipped unminified at
-# 18 MB. That was wrong: a minified build with only this rule removed connects
-# normally on a real device, at 2.2 MB. Minification is fine. This rule is not.
+# 18 MB. A minified build with only this rule removed then connected normally on a
+# real device, at 2.2 MB -- but that was one successful connection, and the fault is
+# intermittent, so it settles nothing. Treat this rule as the known cause of the
+# v1.4.0 hang and minification itself as untested either way.
+#
+# Minification is now off for good (see app/build.gradle.kts), so the question is
+# moot unless someone deliberately re-opens it.
 #
 # Likely mechanism, inferred rather than proven: the log calls were acting as an
 # accidental delay. BleHeartRateManager calls gatt.discoverServices() directly inside

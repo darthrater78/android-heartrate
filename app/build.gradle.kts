@@ -40,18 +40,26 @@ android {
 
     buildTypes {
         release {
-            // Minification is ON. It was never what broke v1.4.0.
+            // Minification is OFF, deliberately. The APK is ~18 MB instead of ~2.2 MB.
             //
-            // v1.4.0 hung on connect and shipped minified, so minification looked guilty and
-            // v1.4.1 shipped unminified at 18 MB to stop the bleeding. But v1.4.1 changed two
-            // things at once: it disabled minification AND stopped stripping Log.d/Log.v.
-            // Testing those separately settled it -- a minified build with log stripping off
-            // connects normally on a real device, at 2.2 MB.
+            // That size costs nothing here: this app is sideloaded onto personal phones, so
+            // there is no store limit, no download budget, and no user paying for the bytes.
+            // R8's other benefits are just as irrelevant -- the app spends its life idle
+            // waiting on BLE notifications, so optimisation buys no measurable speed, and the
+            // repository is public, so obfuscation protects nothing.
             //
-            // The culprit is -assumenosideeffects on android.util.Log, which stays commented
-            // out in proguard-rules.pro. Do not restore it without re-testing the connection
-            // on a real device; that file records the likely mechanism.
-            isMinifyEnabled = true
+            // Against that, minification has twice cost real diagnostic effort. v1.4.0 shipped
+            // minified and hung on connect; it was eventually traced to -assumenosideeffects
+            // on android.util.Log (still commented out in proguard-rules.pro, and it should
+            // stay that way). A later minified build then failed a device test for reasons
+            // never established. Both investigations were spent buying a smaller APK that
+            // nobody needed.
+            //
+            // If you turn this back on, you are re-opening that thread. It needs repeated
+            // connection trials on a real device to prove anything -- a single successful
+            // connect is not evidence, which is the specific mistake that produced the
+            // confident and wrong conclusion this comment replaces.
+            isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
