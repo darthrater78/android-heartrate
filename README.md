@@ -137,13 +137,22 @@ VERSION → BUILD → SECURITY → DOCS → RELEASE → SHIP
 
 Each gate must pass before proceeding to the next. Security scan runs after every build. Commits require explicit approval.
 
-Releases are built by the **Release** workflow in the Actions tab, which reads the version from
-`app/build.gradle.kts`, builds a signed APK, tags it, and publishes a GitHub Release. It takes
-one input:
+Releases are published by pushing a version tag to the merged commit on `master`:
 
-- **publish** (default on) — tag and publish a GitHub Release. Turn it **off** to build a
-  signed test APK and attach it to the run as an artifact instead, without tagging or
-  consuming a version number. Use this for diagnostic builds.
+```
+git switch master && git pull && git tag v1.6.0 && git push origin v1.6.0
+```
+
+The tag starts the **Release** workflow. Before it builds anything it checks that the tag
+is on `master`, that the **Build** workflow passed for that exact commit, and that the tag
+matches `versionName` in `app/build.gradle.kts`. It then builds a signed APK and publishes
+a GitHub Release, with notes taken from this README's Version History entry for that version.
+
+- **Pre-release builds:** a tag like `v1.6.0-dev.1` may be pushed from any branch. It
+  publishes a GitHub pre-release, so it can't be mistaken for a real release.
+- **Diagnostic builds:** running **Release** by hand from the Actions tab builds a signed
+  test APK and attaches it to the run, without tagging, publishing, or using up a
+  version number.
 
 ## Version History
 

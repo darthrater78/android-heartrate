@@ -22,3 +22,6 @@ local.properties
 *.pem
 keystore.properties
 key.properties
+
+# dev-skills gate state is per-session and local only.
+.claude/dev-skills-gates.md
