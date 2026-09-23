@@ -1,67 +1,160 @@
 name: Release
 
-# Manually triggered from the Actions tab (works fine from a phone browser, no local
-# Android toolchain or git tag push needed). Builds a signed release APK from the version
-# currently in app/build.gradle.kts, tags it, and publishes a GitHub Release with the APK
-# attached.
+# Two ways in, and only one of them publishes.
+#
+# - Pushing a version tag (v1.6.0) publishes. The tag is pushed by hand from the merged
+#   commit on master; this workflow never creates tags itself. Before anything is built,
+#   the gate job proves the tag is on master, that the Build workflow passed for that
+#   exact commit, and that the commit's versionName matches the tag. Pre-release tags
+#   (v1.6.0-dev.1, -alpha.N, -beta.N, -rc.N) may come from any branch and publish as
+#   GitHub pre-releases.
+# - Running it from the Actions tab builds a signed test APK and attaches it to the run,
+#   with no tag and no release. Use this for diagnostic builds that must not consume a
+#   version number -- a signed release build is the only thing that reproduces what
+#   users install, which is what the v1.4.0-v1.5.1 connection bug turned on.
 on:
+  push:
+    tags: ['v*']
   workflow_dispatch:
-    inputs:
-      publish:
-        description: >-
-          Tag and publish a GitHub Release. Turn OFF to build a signed test APK and
-          attach it to this run as an artifact without tagging or releasing --
-          used for diagnostic builds that must not consume a version number.
-        type: boolean
-        default: true
 
-# Needs to push a tag and create a release, unlike build.yml which only reads.
+# The default is read-only; only the publish step's job asks for more.
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  release:
-    name: Build and publish signed release
+  gate:
+    name: Verify the tagged commit
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      actions: read
+      contents: read
 
     steps:
-      - name: Check out the branch
-        uses: actions/checkout@v4
+      - name: Check out the tagged commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Tags are needed by the duplicate-tag guard below. The default shallow
-          # checkout does not fetch them, which made that guard pass on a tag that
-          # already existed on the remote and pushed the failure down to `git push`.
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify tag is on the default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          case "$GITHUB_REF_NAME" in
+            *-dev.*|*-alpha.*|*-beta.*|*-rc.*) echo "Pre-release tag -- skipping branch check."; exit 0 ;;
+          esac
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/$DEFAULT_BRANCH"; then
+            echo "::error::Tag $GITHUB_REF_NAME is not on $DEFAULT_BRANCH. Releases come from the default branch only; use a pre-release tag (v1.6.0-dev.1) for branch builds."
+            exit 1
+          fi
+
+      - name: Verify tag matches versionName in the tagged commit
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/.*versionName *= *"\([^"]*\)".*/\1/p' app/build.gradle.kts | head -1)"
+          if [ -z "$version" ]; then
+            echo "::error::No versionName found in app/build.gradle.kts. Refusing to publish."
+            exit 1
+          fi
+          # A pre-release tag carries the version it is heading for: v1.6.0-dev.1 builds 1.6.0.
+          base="${GITHUB_REF_NAME%%-*}"
+          if [ "v${version}" != "$base" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME is on a commit that declares ${version}. Merge the release first, then tag the merged commit."
+            exit 1
+          fi
+
+      - name: Require a passing Build run for this commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          deadline=$(( $(date +%s) + 1800 ))
+          while true; do
+            runs=$(gh api \
+              "repos/${REPO}/actions/workflows/build.yml/runs?head_sha=${SHA}&per_page=100" \
+              --jq '.workflow_runs[] | "\(.status) \(.conclusion) \(.html_url)"')
+
+            if [ -z "$runs" ]; then
+              echo "::error::Build has never run for ${SHA}, so nothing has compiled this commit."
+              echo "Push the branch so Build runs on it, or run it by hand (Actions -> Build -> Run workflow), then re-tag." >&2
+              exit 1
+            fi
+
+            if printf '%s\n' "$runs" | awk '$2 == "success" { hit = 1 } END { exit !hit }'; then
+              echo "Build passed for ${SHA}."
+              exit 0
+            fi
+
+            unfinished=$(printf '%s\n' "$runs" | awk '$1 != "completed"' | wc -l)
+            if [ "$unfinished" -eq 0 ]; then
+              echo "::error::Build ran for ${SHA} and did not pass. Refusing to release."
+              printf '%s\n' "$runs" | sed 's/^/  /' >&2
+              exit 1
+            fi
+
+            echo "Build is still running for ${SHA} (${unfinished} unfinished) -- waiting."
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::Timed out waiting for Build on ${SHA} to finish."
+              exit 1
+            fi
+            sleep 20
+          done
+
+  release:
+    name: Build signed APK
+    needs: gate
+    # `needs` on a skipped job skips this one too, so a manual run -- where the gate
+    # does not apply -- is let through explicitly. A failed gate still stops it.
+    if: ${{ !cancelled() && (needs.gate.result == 'success' || (github.event_name == 'workflow_dispatch' && needs.gate.result == 'skipped')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+          cache: gradle
 
       - name: Read version from build.gradle.kts
         id: version
         run: |
-          VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)
-          if [ -z "$VERSION" ]; then
-            echo "Could not read versionName from app/build.gradle.kts" >&2
+          set -euo pipefail
+          version="$(sed -n 's/.*versionName *= *"\([^"]*\)".*/\1/p' app/build.gradle.kts | head -1)"
+          if [ -z "$version" ]; then
+            echo "::error::Could not read versionName from app/build.gradle.kts"
             exit 1
           fi
-          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Confirm tag does not already exist
-        if: inputs.publish
-        run: |
-          if git rev-parse "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
-            echo "Tag ${{ steps.version.outputs.tag }} already exists. Bump versionName before releasing again." >&2
-            exit 1
-          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Decode release keystore
-        run: echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > "${{ runner.temp }}/release.keystore"
+        env:
+          KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          KEYSTORE_PATH: ${{ runner.temp }}/release.keystore
+        run: |
+          set -euo pipefail
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::RELEASE_KEYSTORE_BASE64 is not set; refusing to build an unsigned release."
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH"
 
       - name: Build signed release APK
         env:
@@ -71,25 +164,41 @@ jobs:
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: ./gradlew assembleRelease --stacktrace
 
-      - name: Rename APK for release
+      - name: Delete release keystore
+        if: always()
+        env:
+          KEYSTORE_PATH: ${{ runner.temp }}/release.keystore
+        run: rm -f "$KEYSTORE_PATH"
+
+      - name: Name the APK
+        id: apk
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          EVENT: ${{ github.event_name }}
         run: |
-          mkdir -p out
-          apk=$(find app/build/outputs/apk/release -name '*.apk' | head -n1)
+          set -euo pipefail
+          apk=$(find app/build/outputs/apk/release -name '*.apk' -type f | head -n1)
           if [ -z "$apk" ]; then
-            echo "No release APK found in app/build/outputs/apk/release" >&2
+            echo "::error::No release APK found in app/build/outputs/apk/release"
             exit 1
           fi
-          # A non-publishing run is a diagnostic build. Name it so it can never be
-          # mistaken for the real released artifact of the same version.
-          if [ "${{ inputs.publish }}" = "true" ]; then
-            name="heart-rate-mirror-${{ steps.version.outputs.tag }}.apk"
-          else
-            name="heart-rate-mirror-${{ steps.version.outputs.tag }}-test.apk"
+          if ! find app/build/outputs/apk/release -name '*.apk' -type f | grep -qv -- '-unsigned'; then
+            echo "::error::Release APK is unsigned; check the signing secrets."
+            exit 1
           fi
+          # A manual run is a diagnostic build. Name it so it can never be mistaken
+          # for the real released artifact of the same version.
+          if [ "$EVENT" = "push" ]; then
+            name="heart-rate-mirror-${GITHUB_REF_NAME}.apk"
+          else
+            name="heart-rate-mirror-v${VERSION}-test.apk"
+          fi
+          mkdir -p out
           cp "$apk" "out/$name"
+          echo "path=out/$name" >> "$GITHUB_OUTPUT"
 
       - name: Attach APK to this run
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: heart-rate-mirror-apk
           path: out/*.apk
@@ -97,28 +206,58 @@ jobs:
 
       # R8's own account of what it renamed (mapping.txt), kept (seeds.txt) and removed
       # (usage.txt). Only produced when minification is on, and only collected on a
-      # non-publishing run: mapping.txt is the deobfuscation key, so it must not be
-      # attached to a public release.
+      # manual run: mapping.txt is the deobfuscation key, so it must not be attached to
+      # a public release.
       - name: Attach R8 mapping output to this run
-        if: ${{ !inputs.publish }}
-        uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: r8-mapping
           path: app/build/outputs/mapping/release/
           if-no-files-found: ignore
 
-      - name: Tag the release commit
-        if: inputs.publish
+      - name: Extract release notes from the README
+        if: github.event_name == 'push'
         run: |
-          git tag "${{ steps.version.outputs.tag }}"
-          git push origin "${{ steps.version.outputs.tag }}"
+          set -euo pipefail
+          # The README's Version History is this project's changelog: one
+          # `### [vX.Y.Z](...)` heading per release.
+          base="${GITHUB_REF_NAME%%-*}"
+          awk -v v="$base" '
+            index($0, "### [" v "]") == 1 { flag = 1; next }
+            flag && /^##/ { exit }
+            flag { print }
+          ' README.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "Development build of ${base}. No release notes yet." > release-notes.md
+          fi
 
-      - name: Create GitHub Release
-        if: inputs.publish
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: ${{ steps.version.outputs.tag }}
-          body: |
-            See the [version history](https://github.com/${{ github.repository }}/blob/master/README.md#version-history) in the README for what changed in this release.
-          files: out/*.apk
+      - name: Create GitHub release with APK
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APK: ${{ steps.apk.outputs.path }}
+        run: |
+          set -euo pipefail
+          extra=()
+          case "$GITHUB_REF_NAME" in
+            *-dev.*|*-alpha.*|*-beta.*|*-rc.*) extra+=(--prerelease) ;;
+          esac
+          gh release create "$GITHUB_REF_NAME" "$APK" \
+            --verify-tag \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file release-notes.md \
+            "${extra[@]}"
+
+      - name: Verify the release has its APK
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          assets="$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name')"
+          echo "Assets: $assets"
+          printf '%s\n' "$assets" | grep -q '\.apk$' || {
+            echo "::error::Release published without an APK attached."
+            exit 1
+          }

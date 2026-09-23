@@ -8,6 +8,9 @@ name: Build
 # Subscribing to both events would build the same commit twice. Restore
 # `pull_request:` if this repo ever accepts contributions from forks, since pushes
 # to a fork do not fire `push` here.
+#
+# release.yml reads this workflow's result by file name before it publishes, so a
+# rename here must be matched there.
 on:
   push:
     branches: ['**']
@@ -19,32 +22,44 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    name: Debug APK
+    name: Debug and release APKs
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Check out the branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        # setup-java's own Gradle cache replaces gradle/actions/setup-gradle, whose v6
+        # moved caching into a proprietary component with separate terms of use.
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Set up Gradle
-        # Handles the dependency cache, so later runs are considerably faster.
-        uses: gradle/actions/setup-gradle@v4
+          cache: gradle
 
       - name: Build debug APK
         run: ./gradlew assembleDebug --stacktrace
 
+      - name: Build unsigned release APK
+        # Compiles the release build type -- R8 and proguard-rules.pro included, whenever
+        # minification is on -- on every push, not first on release day. No signing
+        # secrets here, so the build falls back to unsigned (see app/build.gradle.kts).
+        run: ./gradlew assembleRelease --stacktrace
+
       - name: Upload debug APK
         # Attaches the APK to the workflow run, so it can be downloaded and installed
         # without a local Android toolchain.
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: heart-rate-mirror-debug
           path: app/build/outputs/apk/debug/*.apk
