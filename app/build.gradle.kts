@@ -1,6 +1,5 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.compose.compiler)
 }
 
@@ -17,12 +16,12 @@ val hasReleaseSigning = listOf(
 
 android {
     namespace = "com.scrivtech.heartrate"
-    compileSdk = 35
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.scrivtech.heartrate"
         minSdk = 31
-        targetSdk = 35
+        targetSdk = 37
         versionCode = 8
         versionName = "1.5.1"
     }
@@ -78,10 +77,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         compose = true
         // AGP 8 stopped generating BuildConfig unless asked. The scan screen reads
@@ -89,6 +84,13 @@ android {
         // link both track the version above, rather than being hardcoded and going
         // stale on the next bump.
         buildConfig = true
+    }
+}
+
+// AGP 9 compiles Kotlin itself, so the kotlin-android plugin and android.kotlinOptions are gone.
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 
