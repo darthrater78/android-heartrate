@@ -27,8 +27,8 @@
 # intermittent, so it settles nothing. Treat this rule as the known cause of the
 # v1.4.0 hang and minification itself as untested either way.
 #
-# Minification is now off for good (see app/build.gradle.kts), so the question is
-# moot unless someone deliberately re-opens it.
+# Minification was off from v1.4.1 to v1.5.1 and is back on from v1.6.0 (see
+# app/build.gradle.kts). The log rule stays out regardless.
 #
 # Mechanism, now confirmed. The log calls were acting as an accidental delay.
 # BleHeartRateManager called gatt.discoverServices() directly inside
@@ -47,8 +47,8 @@
 # depends on how fast the build runs.
 #
 # That does NOT make this rule safe to restore. It removes the log output that is the
-# only way to diagnose the BLE lifecycle on a shipped build, for no benefit while
-# minification is off. Leave it commented out.
+# only way to diagnose the BLE lifecycle on a shipped build (the logcats that found the
+# v1.6.0 reconnect hang came from a release build). Leave it commented out.
 #
 # -assumenosideeffects class android.util.Log {
 #     public static int d(...);

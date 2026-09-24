@@ -39,29 +39,23 @@ android {
 
     buildTypes {
         release {
-            // Minification is OFF, deliberately. The APK is ~18 MB instead of ~2.2 MB.
+            // R8 is ON again as of v1.6.0, after three releases off.
             //
-            // That size costs nothing here: this app is sideloaded onto personal phones, so
-            // there is no store limit, no download budget, and no user paying for the bytes.
-            // R8's other benefits are just as irrelevant -- the app spends its life idle
-            // waiting on BLE notifications, so optimisation buys no measurable speed, and the
-            // repository is public, so obfuscation protects nothing.
+            // It was switched off because v1.4.0 shipped minified and hung on connect. That
+            // turned out to be a BLE race in BleHeartRateManager, not R8: discoverServices()
+            // ran synchronously from the connection callback, and minification only changed
+            // how fast execution reached that line. v1.5.0 proved it (an unminified release
+            // still failed intermittently), and v1.5.1 fixed the race with explicit delays.
             //
-            // Against that, minification cost three releases of diagnostic effort while
-            // being innocent the whole time. v1.4.0 shipped minified and hung on connect,
-            // which looked damning. The real fault was a BLE race in BleHeartRateManager:
-            // discoverServices() was called synchronously from the connection callback, and
-            // minification only ever changed how fast execution reached that line. v1.5.0
-            // proved it -- an unminified release build still failed, while a debug build of
-            // the same commit worked every time. v1.5.1 fixed the race directly.
+            // v1.6.0 re-enabled it on a signed release build tested on a real phone over
+            // repeated connect/disconnect cycles, including reconnects inside the stack's
+            // 4-second idle-link window. If a connection problem ever appears in a release
+            // build but not a debug one, suspect timing first (see BleHeartRateManager),
+            // and re-test over many cycles: one successful connect is not evidence.
             //
-            // So this could probably be turned back on safely now. It still is not worth it:
-            // the size buys nothing here, and the last three times someone reasoned about
-            // this setting they reasoned wrong. If you do re-open it, it needs repeated
-            // connection trials on a real device -- a single successful connect is not
-            // evidence, which is the specific mistake that produced two confident and wrong
-            // conclusions before this one.
-            isMinifyEnabled = false
+            // Log.d/Log.v are deliberately kept (see proguard-rules.pro).
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
