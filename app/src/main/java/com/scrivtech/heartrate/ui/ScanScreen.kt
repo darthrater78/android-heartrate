@@ -23,7 +23,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -59,8 +58,6 @@ fun ScanScreen(
     val state by bleManager.state.collectAsState()
     val devices by bleManager.devices.collectAsState()
     val errorMessage by bleManager.errorMessage.collectAsState()
-    val reconnectAttempt by bleManager.reconnectAttemptState.collectAsState()
-    val reconnectingTo by bleManager.connectedDeviceName.collectAsState()
     val recentDevices = remember { storage.getRecentDevices() }
     val sessionCount = remember { storage.getSessions().size }
     val hasSessions = sessionCount > 0
@@ -187,25 +184,6 @@ fun ScanScreen(
                 modifier = Modifier.size(24.dp),
                 strokeWidth = 2.dp
             )
-        }
-
-        if (state == ConnectionState.RECONNECTING) {
-            Spacer(modifier = Modifier.height(12.dp))
-            CircularProgressIndicator(
-                color = Color(0xFFE53935),
-                modifier = Modifier.size(24.dp),
-                strokeWidth = 2.dp
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "Connection lost. Reconnecting to ${reconnectingTo ?: "device"} " +
-                    "(attempt $reconnectAttempt of ${BleHeartRateManager.MAX_RECONNECT_ATTEMPTS})",
-                color = Color.White.copy(alpha = 0.7f),
-                fontSize = 14.sp
-            )
-            TextButton(onClick = { bleManager.disconnect() }) {
-                Text(text = "Cancel", color = Color(0xFFE53935), fontSize = 14.sp)
-            }
         }
 
         if (state == ConnectionState.DISCONNECTED) {

@@ -14,7 +14,7 @@ Android app that displays live heart rate from a BLE heart rate monitor on your 
 - Session history — stores up to 30 sessions with avg/max/min BPM stats, time-in-zone breakdowns, and line graphs
 - Session naming — connect straight away, then name sessions afterwards from Session History (e.g. "Morning Run"); unnamed sessions show their date
 - Live session graph — scrolling 5-minute HR graph during active sessions
-- Automatic reconnection — when the watch drops, the session so far is saved and the app returns to the device list, retrying the watch up to 3 times (a successful reconnect starts a new session)
+- Automatic reconnection — when the watch drops, the live screen shows "Reconnecting... (1 of 3)" while the app retries up to 3 times, keeping the session and graph; if all 3 fail, the session is saved and the app returns to the device list
 - Sessions survive rotation and screen-off — the connection runs behind a foreground service
 - Dark OLED-friendly theme
 - Screen stays on while connected
@@ -82,7 +82,8 @@ That file is **not encrypted at rest by the app**. This is a deliberate decision
 here so it is not rediscovered as an oversight:
 
 - `MODE_PRIVATE` limits the file to the app's own UID; no other installed app can read it
-- `allowBackup="false"` keeps it out of Google Drive and `adb backup`
+- `allowBackup="false"` keeps it out of Google Drive and `adb backup`, and
+  `data_extraction_rules.xml` keeps it out of Android 12+ phone-to-phone transfers
 - Release builds are not debuggable, so `run-as` cannot reach it
 - Android's file-based encryption keeps it unreadable until the device is first unlocked
   after boot

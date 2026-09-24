@@ -77,7 +77,7 @@ class BleHeartRateManager(context: Context) {
      */
     @Volatile private var connectAttempt = 0
     @Volatile private var discoveryAttempt = 0
-    /** Backed by [reconnectAttemptState] so the scan screen can show "attempt n of 3". */
+    /** Backed by [reconnectAttemptState] so the live screen can show "n of 3". */
     private var reconnectAttempt: Int
         get() = _reconnectAttempt.value
         set(value) { _reconnectAttempt.value = value }
@@ -163,9 +163,6 @@ class BleHeartRateManager(context: Context) {
 
     fun startScan() {
         val scanner = bluetoothAdapter?.bluetoothLeScanner ?: return
-        // Scanning is offered on the screen that shows a reconnect in progress; starting one
-        // means the user has moved on, so the pending attempt must not fire under the scan.
-        if (_state.value == ConnectionState.RECONNECTING) disconnect()
         _errorMessage.value = null
         _state.value = ConnectionState.SCANNING
 
@@ -361,10 +358,10 @@ class BleHeartRateManager(context: Context) {
     /**
      * Handles a drop the user did not ask for, or a failed reconnect attempt.
      *
-     * It is a hard drop: the client is closed, and RECONNECTING routes the UI back to the
-     * scan screen, which ends and saves the session. Each attempt is one fresh connect; a
-     * success starts a new session (see [handleNotificationsEnabled]). After
-     * [MAX_RECONNECT_ATTEMPTS] the manager stops and waits for the user.
+     * The client is closed and each attempt is one fresh connect. The live screen and the
+     * session stay up through RECONNECTING, and a success carries on in the same session.
+     * After [MAX_RECONNECT_ATTEMPTS] it is a hard drop: DISCONNECTED sends the user back to
+     * the scan screen, which saves the session.
      */
     private fun handleUnexpectedDisconnect() {
         handler.removeCallbacks(connectionTimeout)
@@ -613,9 +610,6 @@ class BleHeartRateManager(context: Context) {
 
     private fun handleNotificationsEnabled() {
         handler.removeCallbacks(connectionTimeout)
-        // The drop ended the previous session (the UI saved it on leaving the live screen),
-        // so a successful reconnect records into a fresh one.
-        if (reconnectAttempt > 0) startNewSession()
         _errorMessage.value = null
         _state.value = ConnectionState.CONNECTED
         notificationsEnabledAt = SystemClock.elapsedRealtime()

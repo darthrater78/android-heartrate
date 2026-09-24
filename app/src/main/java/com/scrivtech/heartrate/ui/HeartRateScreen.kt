@@ -45,6 +45,7 @@ fun HeartRateScreen(bleManager: BleHeartRateManager, maxHr: Int?) {
     val heartRate by bleManager.heartRate.collectAsState()
     val deviceName by bleManager.connectedDeviceName.collectAsState()
     val sessionReadings by bleManager.sessionReadings.collectAsState()
+    val reconnectAttempt by bleManager.reconnectAttemptState.collectAsState()
 
     val currentBpm = heartRate ?: 72
     val pulseDuration = (30_000 / currentBpm).coerceIn(150, 1000)
@@ -106,7 +107,8 @@ fun HeartRateScreen(bleManager: BleHeartRateManager, maxHr: Int?) {
             }
 
             when {
-                state == ConnectionState.CONNECTING -> {
+                state == ConnectionState.CONNECTING ||
+                    state == ConnectionState.RECONNECTING -> {
                     Text(
                         text = "--",
                         fontSize = 120.sp,
@@ -115,7 +117,12 @@ fun HeartRateScreen(bleManager: BleHeartRateManager, maxHr: Int?) {
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Connecting...",
+                        text = if (state == ConnectionState.RECONNECTING) {
+                            "Reconnecting... ($reconnectAttempt of " +
+                                "${BleHeartRateManager.MAX_RECONNECT_ATTEMPTS})"
+                        } else {
+                            "Connecting..."
+                        },
                         fontSize = 18.sp,
                         color = Color.White.copy(alpha = 0.5f)
                     )
@@ -158,6 +165,8 @@ fun HeartRateScreen(bleManager: BleHeartRateManager, maxHr: Int?) {
             }
         }
 
+        // Keep the trace on screen while the manager reconnects — the session is still
+        // running, so blanking the graph would make a brief dropout look like a reset.
         if (sessionReadings.size >= 2) {
             HrGraph(
                 readings = sessionReadings,

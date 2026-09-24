@@ -69,7 +69,8 @@ fun SessionHistoryScreen(
             text = {
                 OutlinedTextField(
                     value = renameInput,
-                    onValueChange = { renameInput = it },
+                    // Bounded so a pasted wall of text cannot bloat the stored history.
+                    onValueChange = { renameInput = it.take(MAX_SESSION_NAME_LENGTH) },
                     placeholder = {
                         Text(
                             text = "Session name",
@@ -339,3 +340,5 @@ private fun StatItem(label: String, value: Int) {
         )
     }
 }
+
+private const val MAX_SESSION_NAME_LENGTH = 60
