@@ -62,11 +62,10 @@ class MainActivity : ComponentActivity() {
             var age by remember { mutableStateOf(storage.getAge()) }
             val maxHr = age?.let { maxHrForAge(it) }
 
-            // CONNECTING and RECONNECTING both count as "still in a session" — a dropped
-            // link that the manager is recovering must not bounce the user back to Scan or
-            // close out the session partway through.
+            // A drop is a hard drop: RECONNECTING is not "in session", so it returns the user
+            // to Scan (which shows the reconnect attempts) and saves the session so far. A
+            // successful reconnect starts a new session.
             val inSession = state == ConnectionState.CONNECTING ||
-                state == ConnectionState.RECONNECTING ||
                 state == ConnectionState.CONNECTED
 
             LaunchedEffect(state) {
@@ -91,12 +90,15 @@ class MainActivity : ComponentActivity() {
                     // once the screen goes off.
                     HeartRateSessionService.start(this@MainActivity, name)
                 } else if (!inSession) {
-                    window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                    HeartRateSessionService.stop(this@MainActivity)
-
                     if (wasConnected) {
                         wasConnected = false
                         viewModel.saveCompletedSession()
+                    }
+                    // Keep the screen and the foreground service through the reconnect
+                    // attempts, so Doze cannot freeze them; drop both once they are over.
+                    if (state != ConnectionState.RECONNECTING) {
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        HeartRateSessionService.stop(this@MainActivity)
                     }
                 }
             }

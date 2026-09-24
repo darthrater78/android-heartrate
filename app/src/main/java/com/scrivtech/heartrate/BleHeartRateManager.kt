@@ -77,7 +77,10 @@ class BleHeartRateManager(context: Context) {
      */
     @Volatile private var connectAttempt = 0
     @Volatile private var discoveryAttempt = 0
-    @Volatile private var reconnectAttempt = 0
+    /** Backed by [reconnectAttemptState] so the scan screen can show "attempt n of 3". */
+    private var reconnectAttempt: Int
+        get() = _reconnectAttempt.value
+        set(value) { _reconnectAttempt.value = value }
     @Volatile private var userInitiatedDisconnect = false
 
     private val readingsLock = Any()
@@ -129,6 +132,9 @@ class BleHeartRateManager(context: Context) {
     private val _state = MutableStateFlow(ConnectionState.IDLE)
     val state: StateFlow<ConnectionState> = _state.asStateFlow()
 
+    private val _reconnectAttempt = MutableStateFlow(0)
+    val reconnectAttemptState: StateFlow<Int> = _reconnectAttempt.asStateFlow()
+
     private val _heartRate = MutableStateFlow<Int?>(null)
     val heartRate: StateFlow<Int?> = _heartRate.asStateFlow()
 
@@ -157,6 +163,9 @@ class BleHeartRateManager(context: Context) {
 
     fun startScan() {
         val scanner = bluetoothAdapter?.bluetoothLeScanner ?: return
+        // Scanning is offered on the screen that shows a reconnect in progress; starting one
+        // means the user has moved on, so the pending attempt must not fire under the scan.
+        if (_state.value == ConnectionState.RECONNECTING) disconnect()
         _errorMessage.value = null
         _state.value = ConnectionState.SCANNING
 
@@ -215,10 +224,7 @@ class BleHeartRateManager(context: Context) {
         _connectedDeviceAddress.value = device.address
         _state.value = ConnectionState.CONNECTING
 
-        synchronized(readingsLock) { readings.clear() }
-        _sessionReadings.value = emptyList()
-        currentSessionStartTime = System.currentTimeMillis()
-
+        startNewSession()
         openGatt(SCAN_SETTLE_DELAY_MS)
     }
 
@@ -333,19 +339,18 @@ class BleHeartRateManager(context: Context) {
         handler.removeCallbacks(connectionTimeout)
         closeGatt()
 
-        if (connectAttempt < MAX_CONNECT_ATTEMPTS) {
-            connectAttempt++
-            android.util.Log.d(TAG, "Retrying connection, attempt $connectAttempt")
-            _state.value =
-                if (reconnectAttempt > 0) ConnectionState.RECONNECTING else ConnectionState.CONNECTING
-            openGatt(RETRY_BACKOFF_MS * connectAttempt)
+        if (reconnectAttempt > 0) {
+            // Each reconnect attempt is a single connect: a failure moves straight on to the
+            // next attempt, so "3 attempts" means three, not three rounds of three.
+            handleUnexpectedDisconnect()
             return
         }
 
-        if (reconnectAttempt > 0) {
-            // Recovering a live session: hand back to the reconnect ladder, which carries its
-            // own budget, rather than ending the session on one exhausted round of retries.
-            handleUnexpectedDisconnect()
+        if (connectAttempt < MAX_CONNECT_ATTEMPTS) {
+            connectAttempt++
+            android.util.Log.d(TAG, "Retrying connection, attempt $connectAttempt")
+            _state.value = ConnectionState.CONNECTING
+            openGatt(RETRY_BACKOFF_MS * connectAttempt)
             return
         }
 
@@ -353,7 +358,14 @@ class BleHeartRateManager(context: Context) {
         _state.value = ConnectionState.FAILED
     }
 
-    /** Handles a drop that the user did not ask for, reconnecting without ending the session. */
+    /**
+     * Handles a drop the user did not ask for, or a failed reconnect attempt.
+     *
+     * It is a hard drop: the client is closed, and RECONNECTING routes the UI back to the
+     * scan screen, which ends and saves the session. Each attempt is one fresh connect; a
+     * success starts a new session (see [handleNotificationsEnabled]). After
+     * [MAX_RECONNECT_ATTEMPTS] the manager stops and waits for the user.
+     */
     private fun handleUnexpectedDisconnect() {
         handler.removeCallbacks(connectionTimeout)
         closeGatt()
@@ -372,7 +384,11 @@ class BleHeartRateManager(context: Context) {
             _state.value = ConnectionState.RECONNECTING
             openGatt(RECONNECT_BACKOFF_MS * reconnectAttempt)
         } else {
-            _errorMessage.value = "Lost connection to the device and could not reconnect."
+            val name = _connectedDeviceName.value ?: "the device"
+            android.util.Log.d(TAG, "Giving up after $MAX_RECONNECT_ATTEMPTS reconnect attempts")
+            reconnectAttempt = 0
+            _errorMessage.value = "Lost connection to $name and could not reconnect after " +
+                "$MAX_RECONNECT_ATTEMPTS attempts. Tap it to reconnect."
             _state.value = ConnectionState.DISCONNECTED
         }
     }
@@ -597,6 +613,9 @@ class BleHeartRateManager(context: Context) {
 
     private fun handleNotificationsEnabled() {
         handler.removeCallbacks(connectionTimeout)
+        // The drop ended the previous session (the UI saved it on leaving the live screen),
+        // so a successful reconnect records into a fresh one.
+        if (reconnectAttempt > 0) startNewSession()
         _errorMessage.value = null
         _state.value = ConnectionState.CONNECTED
         notificationsEnabledAt = SystemClock.elapsedRealtime()
@@ -637,6 +656,12 @@ class BleHeartRateManager(context: Context) {
     }
 
     // ------------------------------------------------------------- measurements
+
+    private fun startNewSession() {
+        synchronized(readingsLock) { readings.clear() }
+        _sessionReadings.value = emptyList()
+        currentSessionStartTime = System.currentTimeMillis()
+    }
 
     /** Runs on a binder thread; lifecycle work is posted to [handler]. */
     private fun publishHeartRate(client: BluetoothGatt, bpm: Int) {
@@ -753,10 +778,11 @@ class BleHeartRateManager(context: Context) {
         private const val READING_SILENCE_TIMEOUT_MS = 10_000L
         private const val WATCHDOG_TICK_MS = 1_000L
 
-        // A reconnect round spends up to MAX_CONNECT_ATTEMPTS tries, so the ladders multiply:
-        // 3 x 3 attempts with growing backoff is roughly 40s of recovery before giving up.
+        // First connects retry up to MAX_CONNECT_ATTEMPTS times (status 133 is routine).
+        // Reconnects after a drop get MAX_RECONNECT_ATTEMPTS single tries with 2/4/6s backoff,
+        // each bounded by CONNECT_TIMEOUT_MS — about a minute at worst before giving up.
         private const val MAX_CONNECT_ATTEMPTS = 3
-        private const val MAX_RECONNECT_ATTEMPTS = 3
+        const val MAX_RECONNECT_ATTEMPTS = 3
         private const val MAX_DISCOVERY_ATTEMPTS = 2
 
         private const val MIN_PLAUSIBLE_BPM = 1

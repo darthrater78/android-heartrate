@@ -14,7 +14,7 @@ Android app that displays live heart rate from a BLE heart rate monitor on your 
 - Session history — stores up to 30 sessions with avg/max/min BPM stats, time-in-zone breakdowns, and line graphs
 - Session naming — connect straight away, then name sessions afterwards from Session History (e.g. "Morning Run"); unnamed sessions show their date
 - Live session graph — scrolling 5-minute HR graph during active sessions
-- Automatic reconnection — a dropped link is retried in the background without ending the session or losing the graph
+- Automatic reconnection — when the watch drops, the session so far is saved and the app returns to the device list, retrying the watch up to 3 times (a successful reconnect starts a new session)
 - Sessions survive rotation and screen-off — the connection runs behind a foreground service
 - Dark OLED-friendly theme
 - Screen stays on while connected
