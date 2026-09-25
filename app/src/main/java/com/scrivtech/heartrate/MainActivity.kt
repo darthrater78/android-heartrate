@@ -62,9 +62,9 @@ class MainActivity : ComponentActivity() {
             var age by remember { mutableStateOf(storage.getAge()) }
             val maxHr = age?.let { maxHrForAge(it) }
 
-            // CONNECTING and RECONNECTING both count as "still in a session" — a dropped
-            // link that the manager is recovering must not bounce the user back to Scan or
-            // close out the session partway through.
+            // CONNECTING and RECONNECTING both count as "still in a session": a drop keeps the
+            // live screen and the session through the reconnect attempts. Only when they run
+            // out (DISCONNECTED) does the user go back to Scan and the session get saved.
             val inSession = state == ConnectionState.CONNECTING ||
                 state == ConnectionState.RECONNECTING ||
                 state == ConnectionState.CONNECTED

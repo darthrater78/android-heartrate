@@ -2,6 +2,8 @@
 
 Android app that displays live heart rate from a BLE heart rate monitor on your phone screen during workouts.
 
+**[GitHub](https://github.com/darthrater78/android-heartrate)** · **[v1.6.0 release notes](https://github.com/darthrater78/android-heartrate/releases/tag/v1.6.0)**
+
 ## Features
 
 - Connects to any standard BLE Heart Rate Profile (0x180D) device
@@ -14,7 +16,7 @@ Android app that displays live heart rate from a BLE heart rate monitor on your 
 - Session history — stores up to 30 sessions with avg/max/min BPM stats, time-in-zone breakdowns, and line graphs
 - Session naming — connect straight away, then name sessions afterwards from Session History (e.g. "Morning Run"); unnamed sessions show their date
 - Live session graph — scrolling 5-minute HR graph during active sessions
-- Automatic reconnection — a dropped link is retried in the background without ending the session or losing the graph
+- Automatic reconnection — when the watch drops, the live screen shows "Reconnecting... (1 of 3)" while the app retries up to 3 times, keeping the session and graph; if all 3 fail, the session is saved and the app returns to the device list
 - Sessions survive rotation and screen-off — the connection runs behind a foreground service
 - Dark OLED-friendly theme
 - Screen stays on while connected
@@ -82,7 +84,8 @@ That file is **not encrypted at rest by the app**. This is a deliberate decision
 here so it is not rediscovered as an oversight:
 
 - `MODE_PRIVATE` limits the file to the app's own UID; no other installed app can read it
-- `allowBackup="false"` keeps it out of Google Drive and `adb backup`
+- `allowBackup="false"` keeps it out of Google Drive and `adb backup`, and
+  `data_extraction_rules.xml` keeps it out of Android 12+ phone-to-phone transfers
 - Release builds are not debuggable, so `run-as` cannot reach it
 - Android's file-based encryption keeps it unreadable until the device is first unlocked
   after boot
@@ -117,7 +120,8 @@ export ANDROID_HOME="$LOCALAPPDATA\Android\Sdk"
 # Debug build
 ./gradlew assembleDebug
 
-# Release build (requires signing config)
+# Release build (unsigned unless RELEASE_KEYSTORE_PATH, RELEASE_KEYSTORE_PASSWORD,
+# RELEASE_KEY_ALIAS and RELEASE_KEY_PASSWORD are all set)
 ./gradlew assembleRelease
 ```
 
@@ -155,6 +159,33 @@ a GitHub Release, with notes taken from this README's Version History entry for 
   version number.
 
 ## Version History
+
+### [v1.6.0](https://github.com/darthrater78/android-heartrate/releases/tag/v1.6.0) — 2026-09-24
+
+Reconnects no longer hang, and a watch that drops mid-workout is reconnected on the live
+screen instead of ending the session.
+
+- **Reconnect hang fixed.** After a disconnect, the Bluetooth stack keeps the link up for
+  about 4 seconds. A reconnect inside that window reused the link, and the watch never
+  started streaming, because the old connection had left notifications switched on. The
+  app now switches notifications off before it disconnects, and every connect switches
+  them off and then on, so the watch always sees the change.
+- **Silence watchdog.** If no reading arrives within 8 seconds of connecting, the app
+  retries. If readings stop for 10 seconds mid-session, it treats that as a drop.
+- **Automatic reconnection on the live screen.** When the watch drops, the live screen
+  shows "Reconnecting... (1 of 3)" and the app makes up to 3 attempts, 2, 4 and 6 seconds
+  apart. The session and graph carry on if one succeeds. If all 3 fail, the session is
+  saved and the app returns to the device list with a message. Disconnect cancels the
+  attempts.
+- **Session history stays on the phone.** Android 12+ phone-to-phone transfer now
+  excludes it, as Google Drive backup already did. Session names are capped at 60
+  characters.
+- **Smaller APK.** R8 minification and resource shrinking are back on, taking the APK
+  from about 18 MB to about 2 MB. They were switched off after v1.4.0 while the connection
+  bug was wrongly blamed on them. A signed, minified build was tested over repeated
+  connect and disconnect cycles on a real phone before release.
+- **Build tooling.** Updated to AGP 9.4.1, Gradle 9.7.1 and Kotlin 2.4.20. Releases are
+  now published by pushing a version tag (see Release process).
 
 ### [v1.5.1](https://github.com/darthrater78/android-heartrate/releases/tag/v1.5.1) — 2026-09-06
 

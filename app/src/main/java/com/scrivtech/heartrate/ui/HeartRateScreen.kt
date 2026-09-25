@@ -45,6 +45,7 @@ fun HeartRateScreen(bleManager: BleHeartRateManager, maxHr: Int?) {
     val heartRate by bleManager.heartRate.collectAsState()
     val deviceName by bleManager.connectedDeviceName.collectAsState()
     val sessionReadings by bleManager.sessionReadings.collectAsState()
+    val reconnectAttempt by bleManager.reconnectAttemptState.collectAsState()
 
     val currentBpm = heartRate ?: 72
     val pulseDuration = (30_000 / currentBpm).coerceIn(150, 1000)
@@ -117,7 +118,8 @@ fun HeartRateScreen(bleManager: BleHeartRateManager, maxHr: Int?) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = if (state == ConnectionState.RECONNECTING) {
-                            "Reconnecting..."
+                            "Reconnecting... ($reconnectAttempt of " +
+                                "${BleHeartRateManager.MAX_RECONNECT_ATTEMPTS})"
                         } else {
                             "Connecting..."
                         },

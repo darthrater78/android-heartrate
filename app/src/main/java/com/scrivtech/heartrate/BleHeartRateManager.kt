@@ -9,6 +9,7 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
+import android.bluetooth.BluetoothStatusCodes
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
@@ -19,6 +20,7 @@ import android.content.IntentFilter
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,6 +31,9 @@ enum class ConnectionState {
     IDLE, SCANNING, CONNECTING, RECONNECTING, CONNECTED, DISCONNECTED, FAILED
 }
 
+/** Where the live client is in the off-then-on CCCD sequence; see handleServicesDiscovered. */
+private enum class CccdStep { NONE, RESETTING, ENABLING, ENABLED }
+
 @SuppressLint("MissingPermission")
 class BleHeartRateManager(context: Context) {
 
@@ -38,7 +43,30 @@ class BleHeartRateManager(context: Context) {
 
     private val handler = Handler(Looper.getMainLooper())
 
-    private var gatt: BluetoothGatt? = null
+    /**
+     * The live GATT client. Every callback is checked against it: one callback object serves
+     * every client this class opens, so a late event from a client already being torn down
+     * would otherwise land on the connection that replaced it. Volatile because the
+     * notification path reads it on a binder thread.
+     */
+    @Volatile private var gatt: BluetoothGatt? = null
+
+    /**
+     * A client on its way out: notifications off, then disconnect, then close. Kept apart
+     * from [gatt] so its callbacks can finish the shutdown without touching the new session.
+     */
+    private var closingGatt: BluetoothGatt? = null
+
+    /** Whether [gatt] currently has a link up — only then is a graceful shutdown possible. */
+    private var linkUp = false
+    private var cccdStep = CccdStep.NONE
+    private var hrCccd: BluetoothGattDescriptor? = null
+
+    /** Timestamps on the [SystemClock.elapsedRealtime] clock; 0 means "not yet". */
+    private var connectStartedAt = 0L
+    private var notificationsEnabledAt = 0L
+    @Volatile private var lastReadingAt = 0L
+
     private var targetDevice: BluetoothDevice? = null
     private var pendingConnect: Runnable? = null
 
@@ -49,7 +77,10 @@ class BleHeartRateManager(context: Context) {
      */
     @Volatile private var connectAttempt = 0
     @Volatile private var discoveryAttempt = 0
-    @Volatile private var reconnectAttempt = 0
+    /** Backed by [reconnectAttemptState] so the live screen can show "n of 3". */
+    private var reconnectAttempt: Int
+        get() = _reconnectAttempt.value
+        set(value) { _reconnectAttempt.value = value }
     @Volatile private var userInitiatedDisconnect = false
 
     private val readingsLock = Any()
@@ -63,8 +94,46 @@ class BleHeartRateManager(context: Context) {
         }
     }
 
+    private val closeTimeout = Runnable {
+        android.util.Log.d(TAG, "Graceful close timed out, closing anyway")
+        finishClosing()
+    }
+
+    /**
+     * Watches for readings to stop while CONNECTED. The link reporting itself as up is not
+     * proof the watch is sending: a watch that stops sharing, or a CCCD write the watch
+     * accepted without starting its stream, leaves a connection that is up and silent, and
+     * the app used to sit on it until force-closed.
+     */
+    private val readingWatchdog = object : Runnable {
+        override fun run() {
+            if (_state.value != ConnectionState.CONNECTED) return
+            val now = SystemClock.elapsedRealtime()
+            val last = lastReadingAt
+            if (last == 0L) {
+                val waited = now - notificationsEnabledAt
+                if (waited >= FIRST_READING_TIMEOUT_MS) {
+                    android.util.Log.d(TAG, "No reading $waited ms after notifications were enabled")
+                    retryOrFail(
+                        "Connected, but the watch is not sending heart rate. Make sure heart " +
+                            "rate sharing is on at the watch, then connect again."
+                    )
+                    return
+                }
+            } else if (now - last >= READING_SILENCE_TIMEOUT_MS) {
+                android.util.Log.d(TAG, "No reading for ${now - last} ms, treating it as a drop")
+                handleUnexpectedDisconnect()
+                return
+            }
+            handler.postDelayed(this, WATCHDOG_TICK_MS)
+        }
+    }
+
     private val _state = MutableStateFlow(ConnectionState.IDLE)
     val state: StateFlow<ConnectionState> = _state.asStateFlow()
+
+    private val _reconnectAttempt = MutableStateFlow(0)
+    val reconnectAttemptState: StateFlow<Int> = _reconnectAttempt.asStateFlow()
 
     private val _heartRate = MutableStateFlow<Int?>(null)
     val heartRate: StateFlow<Int?> = _heartRate.asStateFlow()
@@ -152,10 +221,7 @@ class BleHeartRateManager(context: Context) {
         _connectedDeviceAddress.value = device.address
         _state.value = ConnectionState.CONNECTING
 
-        synchronized(readingsLock) { readings.clear() }
-        _sessionReadings.value = emptyList()
-        currentSessionStartTime = System.currentTimeMillis()
-
+        startNewSession()
         openGatt(SCAN_SETTLE_DELAY_MS)
     }
 
@@ -163,6 +229,8 @@ class BleHeartRateManager(context: Context) {
         userInitiatedDisconnect = true
         targetDevice = null
         pendingConnect = null
+        // Finish any earlier shutdown first: clearing the handler below drops its timeout.
+        finishClosing()
         handler.removeCallbacksAndMessages(null)
         closeGatt()
         _state.value = ConnectionState.IDLE
@@ -192,6 +260,12 @@ class BleHeartRateManager(context: Context) {
 
         val task = Runnable {
             pendingConnect = null
+            // A graceful close normally finishes well inside the settle delay; if it has not,
+            // cut it short rather than hold two clients on the same device.
+            finishClosing()
+            lastReadingAt = 0L
+            notificationsEnabledAt = 0L
+            connectStartedAt = SystemClock.elapsedRealtime()
             val isBonded = device.bondState == BluetoothDevice.BOND_BONDED
             val transport =
                 if (isBonded) BluetoothDevice.TRANSPORT_AUTO else BluetoothDevice.TRANSPORT_LE
@@ -211,13 +285,50 @@ class BleHeartRateManager(context: Context) {
      * the only thing that returns one. Leaking them makes every later [connectGatt] fail
      * with status 133 until the process is killed — which is why this must run on every
      * terminal path, not just the happy one.
+     *
+     * While the link is up the shutdown is [graceful]: notifications are switched off at the
+     * watch before disconnecting. Skipping that was the reconnect hang. The stack holds an
+     * idle link open for a few seconds after the last client closes, a reconnect inside that
+     * window reuses it, and the watch — still holding "notify on" from the old client — saw
+     * the new client's enable as no change and never started streaming. The shutdown is
+     * bounded by [closeTimeout], so a watch that never answers cannot leak the client.
      */
-    private fun closeGatt() {
-        gatt?.let { client ->
+    private fun closeGatt(graceful: Boolean = true) {
+        handler.removeCallbacks(readingWatchdog)
+        val client = gatt ?: return
+        gatt = null
+        val descriptor = hrCccd
+        val notifying = cccdStep != CccdStep.NONE
+        val wasUp = linkUp
+        hrCccd = null
+        cccdStep = CccdStep.NONE
+        linkUp = false
+
+        if (!graceful || !wasUp) {
             runCatching { client.disconnect() }
             runCatching { client.close() }
+            return
         }
-        gatt = null
+
+        finishClosing()
+        closingGatt = client
+        handler.postDelayed(closeTimeout, CLOSE_TIMEOUT_MS)
+        val disabling = notifying && descriptor != null && runCatching {
+            client.setCharacteristicNotification(descriptor.characteristic, false)
+            writeCccd(client, descriptor, BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE)
+        }.getOrDefault(false)
+        // Without a disable in flight there is nothing to wait for before disconnecting;
+        // with one, the descriptor-write callback disconnects.
+        if (!disabling) runCatching { client.disconnect() }
+    }
+
+    /** Ends the graceful shutdown started by [closeGatt], whichever step it reached. */
+    private fun finishClosing() {
+        val client = closingGatt ?: return
+        closingGatt = null
+        handler.removeCallbacks(closeTimeout)
+        runCatching { client.disconnect() }
+        runCatching { client.close() }
     }
 
     /** Retries the connection with backoff, or gives up and surfaces [reason]. */
@@ -225,19 +336,18 @@ class BleHeartRateManager(context: Context) {
         handler.removeCallbacks(connectionTimeout)
         closeGatt()
 
-        if (connectAttempt < MAX_CONNECT_ATTEMPTS) {
-            connectAttempt++
-            android.util.Log.d(TAG, "Retrying connection, attempt $connectAttempt")
-            _state.value =
-                if (reconnectAttempt > 0) ConnectionState.RECONNECTING else ConnectionState.CONNECTING
-            openGatt(RETRY_BACKOFF_MS * connectAttempt)
+        if (reconnectAttempt > 0) {
+            // Each reconnect attempt is a single connect: a failure moves straight on to the
+            // next attempt, so "3 attempts" means three, not three rounds of three.
+            handleUnexpectedDisconnect()
             return
         }
 
-        if (reconnectAttempt > 0) {
-            // Recovering a live session: hand back to the reconnect ladder, which carries its
-            // own budget, rather than ending the session on one exhausted round of retries.
-            handleUnexpectedDisconnect()
+        if (connectAttempt < MAX_CONNECT_ATTEMPTS) {
+            connectAttempt++
+            android.util.Log.d(TAG, "Retrying connection, attempt $connectAttempt")
+            _state.value = ConnectionState.CONNECTING
+            openGatt(RETRY_BACKOFF_MS * connectAttempt)
             return
         }
 
@@ -245,7 +355,14 @@ class BleHeartRateManager(context: Context) {
         _state.value = ConnectionState.FAILED
     }
 
-    /** Handles a drop that the user did not ask for, reconnecting without ending the session. */
+    /**
+     * Handles a drop the user did not ask for, or a failed reconnect attempt.
+     *
+     * The client is closed and each attempt is one fresh connect. The live screen and the
+     * session stay up through RECONNECTING, and a success carries on in the same session.
+     * After [MAX_RECONNECT_ATTEMPTS] it is a hard drop: DISCONNECTED sends the user back to
+     * the scan screen, which saves the session.
+     */
     private fun handleUnexpectedDisconnect() {
         handler.removeCallbacks(connectionTimeout)
         closeGatt()
@@ -264,7 +381,11 @@ class BleHeartRateManager(context: Context) {
             _state.value = ConnectionState.RECONNECTING
             openGatt(RECONNECT_BACKOFF_MS * reconnectAttempt)
         } else {
-            _errorMessage.value = "Lost connection to the device and could not reconnect."
+            val name = _connectedDeviceName.value ?: "the device"
+            android.util.Log.d(TAG, "Giving up after $MAX_RECONNECT_ATTEMPTS reconnect attempts")
+            reconnectAttempt = 0
+            _errorMessage.value = "Lost connection to $name and could not reconnect after " +
+                "$MAX_RECONNECT_ATTEMPTS attempts. Tap it to reconnect."
             _state.value = ConnectionState.DISCONNECTED
         }
     }
@@ -287,7 +408,7 @@ class BleHeartRateManager(context: Context) {
             status: Int
         ) {
             if (descriptor.uuid != CCCD_UUID) return
-            handler.post { handleNotificationsEnabled(status) }
+            handler.post { handleDescriptorWrite(gatt, status) }
         }
 
         override fun onCharacteristicChanged(
@@ -296,7 +417,7 @@ class BleHeartRateManager(context: Context) {
             value: ByteArray
         ) {
             if (characteristic.uuid == HR_MEASUREMENT_UUID) {
-                publishHeartRate(parseHeartRate(value))
+                publishHeartRate(gatt, parseHeartRate(value))
             }
         }
 
@@ -307,13 +428,23 @@ class BleHeartRateManager(context: Context) {
             characteristic: BluetoothGattCharacteristic
         ) {
             if (characteristic.uuid == HR_MEASUREMENT_UUID) {
-                characteristic.value?.let { publishHeartRate(parseHeartRate(it)) }
+                characteristic.value?.let { publishHeartRate(gatt, parseHeartRate(it)) }
             }
         }
     }
 
     private fun handleConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+        if (gatt === closingGatt) {
+            if (newState == BluetoothProfile.STATE_DISCONNECTED) finishClosing()
+            return
+        }
+        if (gatt !== this.gatt) {
+            android.util.Log.d(TAG, "Ignoring state change from a stale client")
+            return
+        }
+
         if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+            linkUp = false
             if (_state.value == ConnectionState.CONNECTED) {
                 // A live session dropped — link timeout, peer terminated, out of range. The
                 // status code does not matter here: recover on the reconnect ladder rather
@@ -333,6 +464,7 @@ class BleHeartRateManager(context: Context) {
         }
 
         if (newState == BluetoothProfile.STATE_CONNECTED) {
+            linkUp = true
             // The timeout stays armed until notifications are confirmed — discovery and the
             // descriptor write can both stall after the link itself is up.
             android.util.Log.d(TAG, "Connected, discovering services...")
@@ -362,6 +494,7 @@ class BleHeartRateManager(context: Context) {
     }
 
     private fun handleServicesDiscovered(gatt: BluetoothGatt, status: Int) {
+        if (gatt !== this.gatt) return
         if (status != BluetoothGatt.GATT_SUCCESS) {
             retryOrFail("Service discovery failed (status $status).")
             return
@@ -406,6 +539,7 @@ class BleHeartRateManager(context: Context) {
             failConnection("Heart Rate characteristic does not support notifications.")
             return
         }
+        hrCccd = descriptor
 
         // CONNECTED is deferred to onDescriptorWrite: until the descriptor write lands the
         // watch is not actually pushing measurements, and reporting success here produced a
@@ -416,31 +550,83 @@ class BleHeartRateManager(context: Context) {
         // peer, and issuing it in the same breath is the second instance of the pattern that
         // made this app's connection depend on execution speed. The wait is shorter because
         // the link is already established by this point.
+        //
+        // The write is "off" first, then "on" (handleDescriptorWrite chains the second). The
+        // watch starts streaming on the change to "on", and a reused link can still hold "on"
+        // from an earlier client, so writing "on" alone may change nothing — see closeGatt.
         handler.postDelayed({
             if (this.gatt !== gatt) return@postDelayed
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
-            } else {
-                @Suppress("DEPRECATION")
-                descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                @Suppress("DEPRECATION")
-                gatt.writeDescriptor(descriptor)
+            cccdStep = CccdStep.RESETTING
+            if (!writeCccd(gatt, descriptor, BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE)) {
+                retryOrFail("Could not enable heart rate notifications.")
             }
         }, CCCD_WRITE_DELAY_MS)
     }
 
-    private fun handleNotificationsEnabled(status: Int) {
+    private fun handleDescriptorWrite(gatt: BluetoothGatt, status: Int) {
+        if (gatt === closingGatt) {
+            // Notifications are off at the watch (or the write failed — either way the
+            // shutdown moves on). The disconnect callback, or the timeout, closes the client.
+            runCatching { gatt.disconnect() }
+            return
+        }
+        if (gatt !== this.gatt) return
+
         if (status != BluetoothGatt.GATT_SUCCESS) {
             retryOrFail("Could not enable heart rate notifications (status $status).")
             return
         }
+
+        when (cccdStep) {
+            CccdStep.RESETTING -> {
+                cccdStep = CccdStep.ENABLING
+                val descriptor = hrCccd
+                if (descriptor == null ||
+                    !writeCccd(gatt, descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+                ) {
+                    retryOrFail("Could not enable heart rate notifications.")
+                }
+            }
+            CccdStep.ENABLING -> {
+                cccdStep = CccdStep.ENABLED
+                handleNotificationsEnabled()
+            }
+            else -> Unit
+        }
+    }
+
+    private fun writeCccd(
+        client: BluetoothGatt,
+        descriptor: BluetoothGattDescriptor,
+        value: ByteArray
+    ): Boolean = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        client.writeDescriptor(descriptor, value) == BluetoothStatusCodes.SUCCESS
+    } else {
+        @Suppress("DEPRECATION")
+        descriptor.value = value
+        @Suppress("DEPRECATION")
+        client.writeDescriptor(descriptor)
+    }
+
+    private fun handleNotificationsEnabled() {
         handler.removeCallbacks(connectionTimeout)
-        connectAttempt = 0
-        reconnectAttempt = 0
         _errorMessage.value = null
         _state.value = ConnectionState.CONNECTED
-        android.util.Log.d(TAG, "Notifications enabled, streaming heart rate")
+        notificationsEnabledAt = SystemClock.elapsedRealtime()
+        android.util.Log.d(TAG, "Notifications enabled, waiting for the first reading")
+        // The retry budgets are reset by the first reading, not here: a connection that
+        // enables notifications and then stays silent has not succeeded, and resetting on it
+        // would let the watchdog retry forever.
+        handler.removeCallbacks(readingWatchdog)
+        handler.postDelayed(readingWatchdog, WATCHDOG_TICK_MS)
+    }
+
+    private fun onFirstReading(client: BluetoothGatt) {
+        if (client !== gatt) return
+        connectAttempt = 0
+        reconnectAttempt = 0
+        val elapsed = SystemClock.elapsedRealtime() - connectStartedAt
+        android.util.Log.d(TAG, "First reading $elapsed ms after connectGatt, streaming")
     }
 
     private fun failConnection(reason: String) {
@@ -465,11 +651,23 @@ class BleHeartRateManager(context: Context) {
 
     // ------------------------------------------------------------- measurements
 
-    private fun publishHeartRate(bpm: Int) {
+    private fun startNewSession() {
+        synchronized(readingsLock) { readings.clear() }
+        _sessionReadings.value = emptyList()
+        currentSessionStartTime = System.currentTimeMillis()
+    }
+
+    /** Runs on a binder thread; lifecycle work is posted to [handler]. */
+    private fun publishHeartRate(client: BluetoothGatt, bpm: Int) {
+        // A client being shut down can deliver a last notification or two.
+        if (client !== gatt) return
         // Characteristic payloads are external input: parseHeartRate returns 0 for a short
         // packet, and a malformed uint16 can decode to five digits. Either would corrupt the
         // session's min/max and the graph's scale, so drop anything outside a plausible range.
         if (bpm !in MIN_PLAUSIBLE_BPM..MAX_PLAUSIBLE_BPM) return
+        val first = lastReadingAt == 0L
+        lastReadingAt = SystemClock.elapsedRealtime()
+        if (first) handler.post { onFirstReading(client) }
         _heartRate.value = bpm
 
         val reading = HrReading(
@@ -517,7 +715,9 @@ class BleHeartRateManager(context: Context) {
         android.util.Log.d(TAG, "Bluetooth turned off, tearing down")
         pendingConnect = null
         handler.removeCallbacksAndMessages(null)
-        closeGatt()
+        // The radio is gone, so there is no watch left to switch notifications off at.
+        finishClosing()
+        closeGatt(graceful = false)
         _heartRate.value = null
         _devices.value = emptyList()
         // Clearing the target stops the reconnect ladder: there is nothing to reconnect to
@@ -562,10 +762,21 @@ class BleHeartRateManager(context: Context) {
         private const val SERVICE_DISCOVERY_DELAY_MS = 600L
         private const val CCCD_WRITE_DELAY_MS = 200L
 
-        // A reconnect round spends up to MAX_CONNECT_ATTEMPTS tries, so the ladders multiply:
-        // 3 x 3 attempts with growing backoff is roughly 40s of recovery before giving up.
+        // A graceful close is two round trips (CCCD write, disconnect), normally well under
+        // 300ms; the timeout only matters for a watch that has stopped answering.
+        private const val CLOSE_TIMEOUT_MS = 1_000L
+
+        // The watch sends about one reading a second. The first can lag while its sensor
+        // starts, so it gets longer than the gap allowed mid-session.
+        private const val FIRST_READING_TIMEOUT_MS = 8_000L
+        private const val READING_SILENCE_TIMEOUT_MS = 10_000L
+        private const val WATCHDOG_TICK_MS = 1_000L
+
+        // First connects retry up to MAX_CONNECT_ATTEMPTS times (status 133 is routine).
+        // Reconnects after a drop get MAX_RECONNECT_ATTEMPTS single tries with 2/4/6s backoff,
+        // each bounded by CONNECT_TIMEOUT_MS — about a minute at worst before giving up.
         private const val MAX_CONNECT_ATTEMPTS = 3
-        private const val MAX_RECONNECT_ATTEMPTS = 3
+        const val MAX_RECONNECT_ATTEMPTS = 3
         private const val MAX_DISCOVERY_ATTEMPTS = 2
 
         private const val MIN_PLAUSIBLE_BPM = 1
