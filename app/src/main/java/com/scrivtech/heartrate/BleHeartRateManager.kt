@@ -31,6 +31,16 @@ enum class ConnectionState {
     IDLE, SCANNING, CONNECTING, RECONNECTING, CONNECTED, DISCONNECTED, FAILED
 }
 
+/**
+ * CONNECTING and RECONNECTING both count as "still in a session": a drop keeps the live
+ * screen and the session through the reconnect attempts. Only when they run out
+ * (DISCONNECTED), Bluetooth goes off, or the user disconnects does the session end.
+ */
+val ConnectionState.isInSession: Boolean
+    get() = this == ConnectionState.CONNECTING ||
+        this == ConnectionState.RECONNECTING ||
+        this == ConnectionState.CONNECTED
+
 /** Where the live client is in the off-then-on CCCD sequence; see handleServicesDiscovered. */
 private enum class CccdStep { NONE, RESETTING, ENABLING, ENABLED }
 
@@ -730,12 +740,8 @@ class BleHeartRateManager(context: Context) {
         }
     }
 
-    /** Tears down for good. Call from the owning ViewModel's onCleared. */
-    fun release() {
-        runCatching { appContext.unregisterReceiver(adapterStateReceiver) }
-        disconnect()
-    }
-
+    // Registered for the life of the process, which is how long this manager lives
+    // (see HeartRateApp), so it is never unregistered.
     init {
         val filter = IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

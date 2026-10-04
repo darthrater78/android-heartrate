@@ -26,3 +26,5 @@ key.properties
 
 # dev-skills gate state is per-session and local only.
 .claude/dev-skills-gates.md
+.dev-skills-gates.md
+.dev-skills-handoff.md

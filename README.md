@@ -17,7 +17,9 @@ Android app that displays live heart rate from a BLE heart rate monitor on your 
 - Session naming — connect straight away, then name sessions afterwards from Session History (e.g. "Morning Run"); unnamed sessions show their date
 - Live session graph — scrolling 5-minute HR graph during active sessions
 - Automatic reconnection — when the watch drops, the live screen shows "Reconnecting... (1 of 3)" while the app retries up to 3 times, keeping the session and graph; if all 3 fail, the session is saved and the app returns to the device list
-- Sessions survive rotation and screen-off — the connection runs behind a foreground service
+- Sessions keep running in the background — switching apps, screen-off, rotation, or swiping the app out of Recents no longer ends a session. It ends only when the watch is lost (after the reconnect attempts), Bluetooth is turned off, or you tap Disconnect
+- Live heart rate in the notification — current BPM and zone while the app is in the background, with a Disconnect button. On Android 16 QPR1 and later it is a Live Update, which shows the BPM in a chip in the status bar
+- Disconnecting tells the watch to stop sending heart rate before the link drops. The watch's own "Share heart rate" setting can only be changed on the watch
 - Dark OLED-friendly theme
 - Screen stays on while connected
 
@@ -60,11 +62,12 @@ Fitbit OS devices (everything except Pixel Watch) lock heart rate data to the Fi
 | `BLUETOOTH_CONNECT` | Connect to and read data from the selected device | — |
 | `FOREGROUND_SERVICE` | Keep the app running for the length of a session | — |
 | `FOREGROUND_SERVICE_CONNECTED_DEVICE` | Required from Android 14 for the session service type | — |
-| `POST_NOTIFICATIONS` | Show the "session running" notification (Android 13+) | — |
+| `POST_NOTIFICATIONS` | Show the live heart rate notification (Android 13+) | — |
+| `POST_PROMOTED_NOTIFICATIONS` | Let that notification be a Live Update with a status bar BPM chip (Android 16 QPR1+) | — |
 
 No internet, storage, camera, or location permissions are used. The app communicates only over local Bluetooth LE and stores session data in private app storage (SharedPreferences).
 
-Denying the notification permission does not break anything — the session service still runs, it just has no visible notification.
+Denying the notification permission does not break anything — the session service still runs, it just has no visible notification. Live Updates can be turned off per app in system settings; the notification then stays in the shade without the status bar chip.
 
 ## Data Storage and Privacy
 
