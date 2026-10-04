@@ -2,7 +2,7 @@
 
 Android app that displays live heart rate from a BLE heart rate monitor on your phone screen during workouts.
 
-**[GitHub](https://github.com/darthrater78/android-heartrate)** · **[v1.6.0 release notes](https://github.com/darthrater78/android-heartrate/releases/tag/v1.6.0)**
+**[GitHub](https://github.com/darthrater78/android-heartrate)** · **[v1.7.0 release notes](https://github.com/darthrater78/android-heartrate/releases/tag/v1.7.0)**
 
 ## Features
 
@@ -147,7 +147,7 @@ Each gate must pass before proceeding to the next. Security scan runs after ever
 Releases are published by pushing a version tag to the merged commit on `master`:
 
 ```
-git switch master && git pull && git tag v1.6.0 && git push origin v1.6.0
+git switch master && git pull && git tag v1.7.0 && git push origin v1.7.0
 ```
 
 The tag starts the **Release** workflow. Before it builds anything it checks that the tag
@@ -155,13 +155,34 @@ is on `master`, that the **Build** workflow passed for that exact commit, and th
 matches `versionName` in `app/build.gradle.kts`. It then builds a signed APK and publishes
 a GitHub Release, with notes taken from this README's Version History entry for that version.
 
-- **Pre-release builds:** a tag like `v1.6.0-dev.1` may be pushed from any branch. It
+- **Pre-release builds:** a tag like `v1.7.0-dev.1` may be pushed from any branch. It
   publishes a GitHub pre-release, so it can't be mistaken for a real release.
 - **Diagnostic builds:** running **Release** by hand from the Actions tab builds a signed
   test APK and attaches it to the run, without tagging, publishing, or using up a
   version number.
 
 ## Version History
+
+### [v1.7.0](https://github.com/darthrater78/android-heartrate/releases/tag/v1.7.0) — 2026-10-03
+
+Sessions keep running in the background, and the live heart rate shows in the notification.
+
+- **Sessions survive the background.** Switching apps, turning the screen off, or swiping
+  the app out of Recents no longer ends a session. It ends only when the watch is lost
+  (after the reconnect attempts), Bluetooth is turned off, or you tap Disconnect. A
+  session that ended while the app was in the background is now saved to history; before,
+  it was silently dropped.
+- **Live heart rate in the notification.** The session notification shows the current
+  BPM, zone and reconnect progress, and has a Disconnect button. On Android 16 QPR1 and
+  later it is a Live Update, with the BPM in a chip in the status bar. This uses the new
+  `POST_PROMOTED_NOTIFICATIONS` permission.
+- **Disconnect stops the watch's stream.** Disconnecting switches the watch's heart rate
+  notifications off before the link drops. The watch's own "Share heart rate" setting can
+  only be changed on the watch.
+- **No stutter when a session ends.** The session is now written to history off the main
+  thread.
+- **Verifiable release APKs.** Release APKs carry a GitHub build provenance attestation;
+  check one with `gh attestation verify <apk> --repo darthrater78/android-heartrate`.
 
 ### [v1.6.0](https://github.com/darthrater78/android-heartrate/releases/tag/v1.6.0) — 2026-09-24
 
