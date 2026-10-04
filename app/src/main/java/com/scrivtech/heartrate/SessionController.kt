@@ -4,6 +4,7 @@ import android.content.Context
 import com.scrivtech.heartrate.data.HrSession
 import com.scrivtech.heartrate.data.Storage
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -57,24 +58,27 @@ class SessionController(
      * Writes the session that just ended to history. Sessions are saved unnamed — the user
      * names them afterwards from Session History, which shows the date until they do. A
      * session of fewer than two readings has nothing to graph and is dropped.
+     *
+     * The session is assembled here, before the manager's state moves on, but written on
+     * [Dispatchers.IO]: saving parses and rewrites the whole history, which is long enough
+     * to stall the main thread.
      */
     private fun saveCompletedSession() {
         val readings = bleManager.sessionReadings.value
         if (readings.size >= 2) {
-            storage.saveSession(
-                HrSession(
-                    id = UUID.randomUUID().toString(),
-                    sessionName = "",
-                    deviceName = bleManager.connectedDeviceName.value ?: "Unknown",
-                    deviceAddress = bleManager.connectedDeviceAddress.value ?: "",
-                    startTime = bleManager.currentSessionStartTime,
-                    endTime = System.currentTimeMillis(),
-                    readings = readings,
-                    avgBpm = readings.map { it.bpm }.average().toInt(),
-                    maxBpm = readings.maxOf { it.bpm },
-                    minBpm = readings.minOf { it.bpm }
-                )
+            val session = HrSession(
+                id = UUID.randomUUID().toString(),
+                sessionName = "",
+                deviceName = bleManager.connectedDeviceName.value ?: "Unknown",
+                deviceAddress = bleManager.connectedDeviceAddress.value ?: "",
+                startTime = bleManager.currentSessionStartTime,
+                endTime = System.currentTimeMillis(),
+                readings = readings,
+                avgBpm = readings.map { it.bpm }.average().toInt(),
+                maxBpm = readings.maxOf { it.bpm },
+                minBpm = readings.minOf { it.bpm }
             )
+            scope.launch(Dispatchers.IO) { storage.saveSession(session) }
         }
     }
 }
