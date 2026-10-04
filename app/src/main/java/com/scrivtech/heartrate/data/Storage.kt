@@ -51,6 +51,10 @@ class Storage(context: Context) {
         prefs.edit().putString(KEY_RECENT_DEVICES, array.toString()).apply()
     }
 
+    // Session history is read-modify-written whole. The save at the end of a session runs
+    // off the main thread while History can rename or delete on it, so every access to the
+    // sessions blob holds this object's lock; otherwise one write could drop the other's.
+    @Synchronized
     fun getSessions(): List<HrSession> = readList(KEY_SESSIONS) { array ->
         (0 until array.length()).map { i ->
             val obj = array.getJSONObject(i)
@@ -74,16 +78,19 @@ class Storage(context: Context) {
         }.sortedByDescending { it.startTime }
     }
 
+    @Synchronized
     fun saveSession(session: HrSession) {
         val sessions = getSessions().toMutableList()
         sessions.add(0, session)
         writeSessions(sessions.take(MAX_SESSIONS))
     }
 
+    @Synchronized
     fun deleteSession(sessionId: String) {
         writeSessions(getSessions().filter { it.id != sessionId })
     }
 
+    @Synchronized
     fun renameSession(sessionId: String, newName: String) {
         writeSessions(getSessions().map { s ->
             if (s.id == sessionId) s.copy(sessionName = newName) else s

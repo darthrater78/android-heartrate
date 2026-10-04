@@ -119,12 +119,19 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: write
+      # Build provenance: id-token signs the attestation, attestations stores it.
+      id-token: write
+      attestations: write
 
     steps:
       - name: Check out the commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Validate the Gradle wrapper
+        # Runs before the keystore is decoded, so a substituted wrapper jar never sees it.
+        uses: gradle/actions/wrapper-validation@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
 
       - name: Set up JDK 17
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
@@ -196,6 +203,14 @@ jobs:
           mkdir -p out
           cp "$apk" "out/$name"
           echo "path=out/$name" >> "$GITHUB_OUTPUT"
+
+      - name: Attest build provenance
+        # A signed record that this APK was built here, from this commit. Anyone can check
+        # a download with: gh attestation verify <apk> --repo darthrater78/android-heartrate
+        if: github.event_name == 'push'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ steps.apk.outputs.path }}
 
       - name: Attach APK to this run
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

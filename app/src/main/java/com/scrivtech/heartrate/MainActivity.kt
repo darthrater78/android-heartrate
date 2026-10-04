@@ -8,7 +8,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.viewModels
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -26,10 +25,9 @@ private enum class Screen { SCAN, HEART_RATE, SESSION_HISTORY }
 
 class MainActivity : ComponentActivity() {
 
-    // Held by the ViewModel so a rotation does not tear down a live session.
-    private val viewModel: HeartRateViewModel by viewModels()
-    private val bleManager: BleHeartRateManager get() = viewModel.bleManager
-    private val storage: Storage get() = viewModel.storage
+    // Held by the Application so neither a rotation nor the Activity finishing ends a session.
+    private val bleManager: BleHeartRateManager get() = (application as HeartRateApp).bleManager
+    private val storage: Storage get() = (application as HeartRateApp).storage
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -44,7 +42,7 @@ class MainActivity : ComponentActivity() {
             Manifest.permission.BLUETOOTH_CONNECT
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            // Only needed to show the session notification. A denial does not stop the
+            // Only needed to show the live session notification. A denial does not stop the
             // foreground service from running, so the session still works without it.
             permissions += Manifest.permission.POST_NOTIFICATIONS
         }
@@ -53,21 +51,15 @@ class MainActivity : ComponentActivity() {
         setContent {
             val state by bleManager.state.collectAsState()
             var currentScreen by remember { mutableStateOf(Screen.SCAN) }
-            // currentScreen and wasConnected both re-derive themselves from state below, so
-            // losing them to a rotation is harmless.
-            var wasConnected by remember { mutableStateOf(false) }
+            // currentScreen re-derives itself from state below, so losing it to a rotation or
+            // to the Activity being recreated mid-session is harmless.
             // Held here rather than read inside each screen so that setting an age on the
             // scan screen immediately gives the live screen its zones, without a round
             // trip back through storage on every recomposition.
             var age by remember { mutableStateOf(storage.getAge()) }
             val maxHr = age?.let { maxHrForAge(it) }
 
-            // CONNECTING and RECONNECTING both count as "still in a session": a drop keeps the
-            // live screen and the session through the reconnect attempts. Only when they run
-            // out (DISCONNECTED) does the user go back to Scan and the session get saved.
-            val inSession = state == ConnectionState.CONNECTING ||
-                state == ConnectionState.RECONNECTING ||
-                state == ConnectionState.CONNECTED
+            val inSession = state.isInSession
 
             LaunchedEffect(state) {
                 if (inSession) {
@@ -77,27 +69,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            // Only the screen lives here. The foreground service, recent devices and saving
+            // the session are SessionController's, because Compose pauses these effects while
+            // the app is in the background.
             LaunchedEffect(state) {
                 if (state == ConnectionState.CONNECTED) {
-                    wasConnected = true
                     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-
-                    val name = bleManager.connectedDeviceName.value
-                    val address = bleManager.connectedDeviceAddress.value
-                    if (name != null && address != null) {
-                        storage.addRecentDevice(name, address)
-                    }
-                    // Foreground for the rest of the session, so Doze cannot drop the link
-                    // once the screen goes off.
-                    HeartRateSessionService.start(this@MainActivity, name)
                 } else if (!inSession) {
                     window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                    HeartRateSessionService.stop(this@MainActivity)
-
-                    if (wasConnected) {
-                        wasConnected = false
-                        viewModel.saveCompletedSession()
-                    }
                 }
             }
 
@@ -124,15 +103,5 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-    }
-
-    override fun onDestroy() {
-        // Deliberately does not disconnect: onDestroy also fires on rotation, and the
-        // ViewModel outlives it. Teardown happens in HeartRateViewModel.onCleared, which
-        // runs only when the Activity is finishing for good.
-        if (isFinishing) {
-            HeartRateSessionService.stop(this)
-        }
-        super.onDestroy()
     }
 }

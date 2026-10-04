@@ -2,7 +2,7 @@
 
 Android app that displays live heart rate from a BLE heart rate monitor on your phone screen during workouts.
 
-**[GitHub](https://github.com/darthrater78/android-heartrate)** · **[v1.6.0 release notes](https://github.com/darthrater78/android-heartrate/releases/tag/v1.6.0)**
+**[GitHub](https://github.com/darthrater78/android-heartrate)** · **[v1.7.0 release notes](https://github.com/darthrater78/android-heartrate/releases/tag/v1.7.0)**
 
 ## Features
 
@@ -17,7 +17,9 @@ Android app that displays live heart rate from a BLE heart rate monitor on your 
 - Session naming — connect straight away, then name sessions afterwards from Session History (e.g. "Morning Run"); unnamed sessions show their date
 - Live session graph — scrolling 5-minute HR graph during active sessions
 - Automatic reconnection — when the watch drops, the live screen shows "Reconnecting... (1 of 3)" while the app retries up to 3 times, keeping the session and graph; if all 3 fail, the session is saved and the app returns to the device list
-- Sessions survive rotation and screen-off — the connection runs behind a foreground service
+- Sessions keep running in the background — switching apps, screen-off, rotation, or swiping the app out of Recents no longer ends a session. It ends only when the watch is lost (after the reconnect attempts), Bluetooth is turned off, or you tap Disconnect
+- Live heart rate in the notification — current BPM and zone while the app is in the background, with a Disconnect button. On Android 16 QPR1 and later it is a Live Update, which shows the BPM in a chip in the status bar
+- Disconnecting tells the watch to stop sending heart rate before the link drops. The watch's own "Share heart rate" setting can only be changed on the watch
 - Dark OLED-friendly theme
 - Screen stays on while connected
 
@@ -60,11 +62,12 @@ Fitbit OS devices (everything except Pixel Watch) lock heart rate data to the Fi
 | `BLUETOOTH_CONNECT` | Connect to and read data from the selected device | — |
 | `FOREGROUND_SERVICE` | Keep the app running for the length of a session | — |
 | `FOREGROUND_SERVICE_CONNECTED_DEVICE` | Required from Android 14 for the session service type | — |
-| `POST_NOTIFICATIONS` | Show the "session running" notification (Android 13+) | — |
+| `POST_NOTIFICATIONS` | Show the live heart rate notification (Android 13+) | — |
+| `POST_PROMOTED_NOTIFICATIONS` | Let that notification be a Live Update with a status bar BPM chip (Android 16 QPR1+) | — |
 
 No internet, storage, camera, or location permissions are used. The app communicates only over local Bluetooth LE and stores session data in private app storage (SharedPreferences).
 
-Denying the notification permission does not break anything — the session service still runs, it just has no visible notification.
+Denying the notification permission does not break anything — the session service still runs, it just has no visible notification. Live Updates can be turned off per app in system settings; the notification then stays in the shade without the status bar chip.
 
 ## Data Storage and Privacy
 
@@ -144,7 +147,7 @@ Each gate must pass before proceeding to the next. Security scan runs after ever
 Releases are published by pushing a version tag to the merged commit on `master`:
 
 ```
-git switch master && git pull && git tag v1.6.0 && git push origin v1.6.0
+git switch master && git pull && git tag v1.7.0 && git push origin v1.7.0
 ```
 
 The tag starts the **Release** workflow. Before it builds anything it checks that the tag
@@ -152,13 +155,34 @@ is on `master`, that the **Build** workflow passed for that exact commit, and th
 matches `versionName` in `app/build.gradle.kts`. It then builds a signed APK and publishes
 a GitHub Release, with notes taken from this README's Version History entry for that version.
 
-- **Pre-release builds:** a tag like `v1.6.0-dev.1` may be pushed from any branch. It
+- **Pre-release builds:** a tag like `v1.7.0-dev.1` may be pushed from any branch. It
   publishes a GitHub pre-release, so it can't be mistaken for a real release.
 - **Diagnostic builds:** running **Release** by hand from the Actions tab builds a signed
   test APK and attaches it to the run, without tagging, publishing, or using up a
   version number.
 
 ## Version History
+
+### [v1.7.0](https://github.com/darthrater78/android-heartrate/releases/tag/v1.7.0) — 2026-10-03
+
+Sessions keep running in the background, and the live heart rate shows in the notification.
+
+- **Sessions survive the background.** Switching apps, turning the screen off, or swiping
+  the app out of Recents no longer ends a session. It ends only when the watch is lost
+  (after the reconnect attempts), Bluetooth is turned off, or you tap Disconnect. A
+  session that ended while the app was in the background is now saved to history; before,
+  it was silently dropped.
+- **Live heart rate in the notification.** The session notification shows the current
+  BPM, zone and reconnect progress, and has a Disconnect button. On Android 16 QPR1 and
+  later it is a Live Update, with the BPM in a chip in the status bar. This uses the new
+  `POST_PROMOTED_NOTIFICATIONS` permission.
+- **Disconnect stops the watch's stream.** Disconnecting switches the watch's heart rate
+  notifications off before the link drops. The watch's own "Share heart rate" setting can
+  only be changed on the watch.
+- **No stutter when a session ends.** The session is now written to history off the main
+  thread.
+- **Verifiable release APKs.** Release APKs carry a GitHub build provenance attestation;
+  check one with `gh attestation verify <apk> --repo darthrater78/android-heartrate`.
 
 ### [v1.6.0](https://github.com/darthrater78/android-heartrate/releases/tag/v1.6.0) — 2026-09-24
 
