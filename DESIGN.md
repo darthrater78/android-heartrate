@@ -166,7 +166,7 @@ A training instrument, not a dashboard: one person reads it at arm's length, mid
 
 - Screen edge padding 20dp; 28dp between sections; 8–12dp inside a group.
 - Screens are a single column that flows top to bottom. No element is placed by a fixed offset or a fraction of screen height.
-- Left-aligned. Only dialogs centre.
+- Left-aligned, with two exceptions: dialogs, and the live bpm reading, whose digits sit on the screen's centre line with the unit trailing.
 - Every tappable element is at least 48dp tall, and two actions never sit closer than 8dp.
 - System bars are handled with window insets, not fixed spacers.
 

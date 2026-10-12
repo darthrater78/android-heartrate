@@ -30,7 +30,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -111,7 +113,21 @@ fun HeartRateScreen(bleManager: BleHeartRateManager, maxHr: Int?) {
                     Text(text = formatClock(elapsedMs), style = HrmType.NumeralLg, color = TextPrimary)
                 }
 
-                Row(verticalAlignment = Alignment.Bottom) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.Bottom
+                ) {
+                    // An invisible twin of the unit label on the left, so the digits sit
+                    // on the screen's centre line rather than the digits-plus-unit group.
+                    Text(
+                        text = "bpm",
+                        style = HrmType.Body,
+                        modifier = Modifier
+                            .alpha(0f)
+                            .clearAndSetSemantics {}
+                    )
+                    Spacer(modifier = Modifier.width(Dimens.Sm))
                     Text(
                         text = if (live) "$bpm" else "--",
                         style = HrmType.DisplayBpm,
