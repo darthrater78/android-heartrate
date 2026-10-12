@@ -2,25 +2,26 @@
 
 Android app that displays live heart rate from a BLE heart rate monitor on your phone screen during workouts.
 
-**[GitHub](https://github.com/darthrater78/android-heartrate)** · **[v1.7.0 release notes](https://github.com/darthrater78/android-heartrate/releases/tag/v1.7.0)**
+**[GitHub](https://github.com/darthrater78/android-heartrate)** · **[v1.8.0 release notes](https://github.com/darthrater78/android-heartrate/releases/tag/v1.8.0)**
 
 ## Features
 
 - Connects to any standard BLE Heart Rate Profile (0x180D) device
 - Works with Pixel Watch (1/2/3), Polar, Garmin, and BLE chest straps
-- Large BPM display with pulse animation synced to heart rate
-- HR zone colors — BPM display and graph segments shift from blue (rest) through green, yellow, orange, to red (max) with smooth interpolation
+- Large, centred BPM display, with a connection dot that pulses in time with your heart rate
+- Zone colors — colour is used only for your zones. A chip names the current zone, a scale shows where you are in it and how many bpm away the next one is, and the graph is drawn over your zone bands. The BPM number itself stays white
 - Heart rate zones — Below zones / Fat Burn / Cardio / Peak, defined as percentages of your maximum heart rate the same way Google Health defines them. Set your age once and the app derives your maximum as 220 minus age
 - Time in zone — how long you spent in each zone, live during the session and again in the session summary, with a one-line note on what training in your current zone achieves
-- Recent devices list — quickly reconnect to previously used devices
-- Session history — stores up to 30 sessions with avg/max/min BPM stats, time-in-zone breakdowns, and line graphs
+- One-tap reconnect — the home screen leads with a Connect button for the device you used last, and lists your recent devices, each of which can be forgotten
+- Session history — stores up to 30 sessions with avg/max/min BPM stats, time-in-zone breakdowns, and line graphs; the latest three are previewed on the home screen. Sessions shorter than 60 seconds are not saved
 - Session naming — connect straight away, then name sessions afterwards from Session History (e.g. "Morning Run"); unnamed sessions show their date
 - Live session graph — scrolling 5-minute HR graph during active sessions
-- Automatic reconnection — when the watch drops, the live screen shows "Reconnecting... (1 of 3)" while the app retries up to 3 times, keeping the session and graph; if all 3 fail, the session is saved and the app returns to the device list
-- Sessions keep running in the background — switching apps, screen-off, rotation, or swiping the app out of Recents no longer ends a session. It ends only when the watch is lost (after the reconnect attempts), Bluetooth is turned off, or you tap Disconnect
+- Automatic reconnection — when the watch drops, the live screen shows "Reconnecting... (1 of 3)" while the app retries up to 3 times, keeping the session and graph; if all 3 fail, the session is saved and the app returns to the home screen
+- Sessions keep running in the background — switching apps, screen-off, rotation, or swiping the app out of Recents no longer ends a session. It ends only when the watch is lost (after the reconnect attempts), Bluetooth is turned off, or you tap End session (Disconnect in the notification)
 - Live heart rate in the notification — current BPM and zone while the app is in the background, with a Disconnect button. On Android 16 QPR1 and later it is a Live Update, which shows the BPM in a chip in the status bar
 - Disconnecting tells the watch to stop sending heart rate before the link drops. The watch's own "Share heart rate" setting can only be changed on the watch
-- Dark OLED-friendly theme
+- Back-gesture confirmation — a back swipe that would leave the app asks first, so an accidental swipe mid-workout does not drop you out of the live screen
+- Dark theme, designed to be read at arm's length (see [DESIGN.md](DESIGN.md))
 - Screen stays on while connected
 
 ## Pixel Watch Setup
@@ -142,7 +143,7 @@ the code.
 
 ### Changes
 
-- **2026-10-12, unreleased.** The release workflow used to write the signing keystore to
+- **2026-10-12, v1.8.0.** The release workflow used to write the signing keystore to
   disk and then run Gradle in the same job, so a compromised plugin or dependency could
   have read it. Building and signing now run in separate jobs, and a dependency review
   check was added for pull requests.
@@ -195,7 +196,7 @@ Each gate must pass before proceeding to the next. Security scan runs after ever
 Releases are published by pushing a version tag to the merged commit on `master`:
 
 ```
-git switch master && git pull && git tag v1.7.0 && git push origin v1.7.0
+git switch master && git pull && git tag v1.8.0 && git push origin v1.8.0
 ```
 
 The tag starts the **Release** workflow. Before it builds anything it checks that the tag
@@ -203,13 +204,43 @@ is on `master`, that the **Build** workflow passed for that exact commit, and th
 matches `versionName` in `app/build.gradle.kts`. It then builds a signed APK and publishes
 a GitHub Release, with notes taken from this README's Version History entry for that version.
 
-- **Pre-release builds:** a tag like `v1.7.0-dev.1` may be pushed from any branch. It
+- **Pre-release builds:** a tag like `v1.8.0-dev.1` may be pushed from any branch. It
   publishes a GitHub pre-release, so it can't be mistaken for a real release.
 - **Diagnostic builds:** running **Release** by hand from the Actions tab builds a signed
   test APK and attaches it to the run, without tagging, publishing, or using up a
   version number.
 
 ## Version History
+
+### [v1.8.0](https://github.com/darthrater78/android-heartrate/releases/tag/v1.8.0) — 2026-10-12
+
+A redesign built to be read at arm's length, where colour means your zone and nothing else.
+
+- **New look.** Every screen is rebuilt on one design system, recorded in `DESIGN.md`: a
+  near-black ground, two text tones, 4dp corners, and the Barlow typefaces bundled in the
+  app. Captions and labels that were too faint to read were raised to at least 4.5:1
+  contrast, and every button is at least 48dp tall.
+- **Zone colours you can trust.** The big number and the graph used to be coloured by
+  fixed bpm thresholds that ignored your age, so they could disagree with the zone label.
+  Every colour now comes from your age-based zone. The number stays white; a chip names
+  the zone, and a scale shows where you are in it and how far the next zone is.
+- **Graph on your zones.** The trace is drawn over your own zone bands, with the axis
+  labelled at your zone boundaries.
+- **One-tap reconnect.** The home screen leads with a Connect button for the device you
+  used last, shows your zones with their bpm ranges, and previews your latest three
+  sessions.
+- **Forget a device.** Each recent device has a Forget action. Sessions recorded with it
+  are kept.
+- **Short sessions are not saved.** A session whose readings span less than 60 seconds is
+  dropped, and the live screen says so while a session is still that short.
+- **Back-gesture confirmation.** Back from Session history returns to home instead of
+  leaving the app. Anywhere it would leave the app, it asks first.
+- **Smoother history.** Session history is read, renamed and deleted off the main thread.
+- **Rename and Delete** are full-size buttons at opposite ends of each session, and Delete
+  still confirms.
+- **Signing key isolation.** Release APKs are built on a runner with no secrets and signed
+  on a separate one, and pull requests that change dependencies are checked for known
+  vulnerabilities. See [Security architecture](#security-architecture).
 
 ### [v1.7.0](https://github.com/darthrater78/android-heartrate/releases/tag/v1.7.0) — 2026-10-03
 
