@@ -38,10 +38,17 @@ class Storage(context: Context) {
         val devices = getRecentDevices().toMutableList()
         devices.removeAll { it.address == address }
         devices.add(0, RecentDevice(name, address, System.currentTimeMillis()))
-        val trimmed = devices.take(MAX_RECENT_DEVICES)
+        writeRecentDevices(devices.take(MAX_RECENT_DEVICES))
+    }
 
+    /** Forgets a device. Sessions recorded with it are history, not pairing, and are kept. */
+    fun removeRecentDevice(address: String) {
+        writeRecentDevices(getRecentDevices().filterNot { it.address == address })
+    }
+
+    private fun writeRecentDevices(devices: List<RecentDevice>) {
         val array = JSONArray()
-        trimmed.forEach { d ->
+        devices.forEach { d ->
             array.put(JSONObject().apply {
                 put("name", d.name)
                 put("address", d.address)

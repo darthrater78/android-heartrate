@@ -3,9 +3,10 @@ package com.scrivtech.heartrate.ui
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -14,14 +15,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.scrivtech.heartrate.data.Storage
 import com.scrivtech.heartrate.data.maxHrForAge
+import com.scrivtech.heartrate.ui.theme.Dimens
+import com.scrivtech.heartrate.ui.theme.HrmType
+import com.scrivtech.heartrate.ui.theme.TextDisabled
+import com.scrivtech.heartrate.ui.theme.TextMuted
+import com.scrivtech.heartrate.ui.theme.TextPrimary
 
 /**
  * Collects the one number the zone model needs.
@@ -43,19 +44,16 @@ fun AgeDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF1E1E1E),
-        title = {
-            Text(text = "Your age", color = Color.White, fontWeight = FontWeight.Medium)
-        },
+        title = { Text(text = "Your age") },
         text = {
             Column {
                 Text(
                     text = "Heart rate zones are percentages of your maximum heart " +
                         "rate, estimated as 220 minus your age.",
-                    fontSize = 14.sp,
-                    color = Color.White.copy(alpha = 0.6f)
+                    style = HrmType.Body,
+                    color = TextMuted
                 )
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(Dimens.ScreenEdge))
                 OutlinedTextField(
                     value = text,
                     onValueChange = { entered ->
@@ -65,48 +63,32 @@ fun AgeDialog(
                     },
                     label = { Text("Age") },
                     singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        focusedBorderColor = Color(0xFFE53935),
-                        unfocusedBorderColor = Color.White.copy(alpha = 0.3f),
-                        focusedLabelColor = Color(0xFFE53935),
-                        unfocusedLabelColor = Color.White.copy(alpha = 0.5f),
-                        cursorColor = Color(0xFFE53935)
-                    )
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(Dimens.Md))
+                // The save button being disabled is what marks the entry invalid; this
+                // line says what would make it valid.
                 Text(
                     text = if (valid) {
                         "Maximum heart rate: ${maxHrForAge(age!!)} bpm"
                     } else {
                         "Enter an age between ${Storage.MIN_AGE} and ${Storage.MAX_AGE}"
                     },
-                    fontSize = 13.sp,
-                    color = if (valid) {
-                        Color.White.copy(alpha = 0.6f)
-                    } else {
-                        Color(0xFFE53935).copy(alpha = 0.8f)
-                    }
+                    style = HrmType.BodySm,
+                    color = if (valid) TextPrimary else TextMuted
                 )
             }
         },
         confirmButton = {
             TextButton(
                 onClick = { if (valid) onSave(age!!) },
-                enabled = valid
+                enabled = valid,
+                // Material's default disabled text is 38% alpha, which falls under 4.5:1.
+                colors = ButtonDefaults.textButtonColors(disabledContentColor = TextDisabled)
             ) {
-                Text(
-                    text = "Save",
-                    color = if (valid) Color(0xFFE53935) else Color.White.copy(alpha = 0.3f)
-                )
+                Text(text = "Save")
             }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(text = "Cancel", color = Color.White.copy(alpha = 0.5f))
-            }
-        }
+        dismissButton = { MutedTextButton(text = "Cancel", onClick = onDismiss) }
     )
 }

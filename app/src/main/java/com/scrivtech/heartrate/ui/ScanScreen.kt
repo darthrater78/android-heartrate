@@ -13,38 +13,57 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.scrivtech.heartrate.BleHeartRateManager
 import com.scrivtech.heartrate.BuildConfig
 import com.scrivtech.heartrate.ConnectionState
+import com.scrivtech.heartrate.R
+import com.scrivtech.heartrate.data.HrSession
 import com.scrivtech.heartrate.data.RecentDevice
 import com.scrivtech.heartrate.data.Storage
 import com.scrivtech.heartrate.data.maxHrForAge
+import com.scrivtech.heartrate.data.timeInZones
+import com.scrivtech.heartrate.ui.theme.Dimens
+import com.scrivtech.heartrate.ui.theme.Ground
+import com.scrivtech.heartrate.ui.theme.Hairline
+import com.scrivtech.heartrate.ui.theme.HrmType
+import com.scrivtech.heartrate.ui.theme.TextMuted
+import com.scrivtech.heartrate.ui.theme.TextPrimary
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @SuppressLint("MissingPermission")
 @Composable
@@ -58,11 +77,17 @@ fun ScanScreen(
     val state by bleManager.state.collectAsState()
     val devices by bleManager.devices.collectAsState()
     val errorMessage by bleManager.errorMessage.collectAsState()
-    val recentDevices = remember { storage.getRecentDevices() }
-    val sessionCount = remember { storage.getSessions().size }
-    val hasSessions = sessionCount > 0
+    var recentDevices by remember { mutableStateOf(storage.getRecentDevices()) }
+    var forgettingDevice by remember { mutableStateOf<RecentDevice?>(null) }
+    // Parsing the whole history is too slow for the main thread once it grows, so the
+    // screen draws first and the sessions section appears when the read finishes.
+    val sessions by produceState(initialValue = emptyList<HrSession>()) {
+        value = withContext(Dispatchers.IO) { storage.getSessions() }
+    }
     var editingAge by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val maxHr = age?.let { maxHrForAge(it) }
+    val scanning = state == ConnectionState.SCANNING
 
     val bluetoothAdapter = remember {
         (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
@@ -79,6 +104,18 @@ fun ScanScreen(
         )
     }
 
+    forgettingDevice?.let { device ->
+        ForgetDeviceDialog(
+            device = device,
+            onDismiss = { forgettingDevice = null },
+            onConfirm = {
+                storage.removeRecentDevice(device.address)
+                recentDevices = storage.getRecentDevices()
+                forgettingDevice = null
+            }
+        )
+    }
+
     LaunchedEffect(state) {
         if (state == ConnectionState.SCANNING) {
             delay(30_000)
@@ -86,215 +123,335 @@ fun ScanScreen(
         }
     }
 
+    val toggleScan = { if (scanning) bleManager.stopScan() else bleManager.startScan() }
+    // The device used last time is the likeliest one to be wanted now, so it gets the one
+    // primary button and connecting is a single tap. Scanning steps down to secondary.
+    val lastDevice = recentDevices.firstOrNull()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .background(Ground)
+            .safeDrawingPadding()
+            .padding(horizontal = Dimens.ScreenEdge)
     ) {
-        Spacer(modifier = Modifier.height(64.dp))
-
-        Text(
-            text = "Heart Rate Mirror",
-            fontSize = 28.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color.White
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = "Scan for BLE devices or start\nHR Mirror on your watch",
-            fontSize = 16.sp,
-            color = Color.White.copy(alpha = 0.5f),
-            lineHeight = 22.sp
-        )
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        Button(
-            onClick = {
-                if (state == ConnectionState.SCANNING) {
-                    bleManager.stopScan()
-                } else {
-                    bleManager.startScan()
-                }
-            },
-            colors = ButtonDefaults.buttonColors(
-                containerColor = if (state == ConnectionState.SCANNING)
-                    Color(0xFF424242) else Color(0xFFE53935)
-            )
-        ) {
-            Text(
-                text = if (state == ConnectionState.SCANNING) "Stop Scan" else "Scan for Devices",
-                fontSize = 16.sp
-            )
-        }
-
-        // Previously a dim text link that read as a footnote next to the scan button.
-        // Past sessions are the main reason to open the app when not about to train, so
-        // this is a card with the same weight as a device row, and it says how much is in
-        // there rather than making the user open it to find out.
-        if (hasSessions) {
-            Spacer(modifier = Modifier.height(20.dp))
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onShowHistory() },
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Session History",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color.White
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = if (sessionCount == 1) {
-                                "1 saved session"
-                            } else {
-                                "$sessionCount saved sessions"
-                            },
-                            fontSize = 12.sp,
-                            color = Color.White.copy(alpha = 0.45f)
-                        )
-                    }
-                    Text(
-                        text = "›",
-                        fontSize = 24.sp,
-                        color = Color(0xFFE53935).copy(alpha = 0.8f)
-                    )
-                }
-            }
-        }
-
-        if (state == ConnectionState.SCANNING) {
-            Spacer(modifier = Modifier.height(12.dp))
-            CircularProgressIndicator(
-                color = Color(0xFFE53935),
-                modifier = Modifier.size(24.dp),
-                strokeWidth = 2.dp
-            )
-        }
-
-        if (state == ConnectionState.DISCONNECTED) {
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = errorMessage ?: "Connection lost. Scan to reconnect.",
-                color = Color(0xFFE53935),
-                fontSize = 14.sp
-            )
-        }
-
-        if (state == ConnectionState.FAILED && errorMessage != null) {
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = errorMessage!!,
-                color = Color(0xFFFF8A65),
-                fontSize = 14.sp
-            )
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // weight(1f) lets the device list take the remaining height so the version
-        // footer stays pinned to the bottom instead of floating under a short list.
+        // weight(1f) lets the list take the remaining height so the version footer stays
+        // pinned to the bottom instead of floating under a short list.
         LazyColumn(modifier = Modifier.weight(1f)) {
-            if (recentDevices.isNotEmpty()) {
-                item {
-                    Text(
-                        text = "Recent Devices",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color.White.copy(alpha = 0.5f),
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                }
-                items(recentDevices, key = { "recent_${it.address}" }) { device ->
-                    RecentDeviceItem(
-                        device = device,
-                        onClick = {
-                            bleManager.connect(bluetoothAdapter.getRemoteDevice(device.address))
-                        }
-                    )
-                }
-                item {
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-            }
-
-            if (devices.isNotEmpty()) {
-                item {
-                    Text(
-                        text = if (recentDevices.isNotEmpty()) "Scanned Devices" else "",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color.White.copy(alpha = 0.5f),
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                }
-            }
-
-            items(devices, key = { it.address }) { device ->
-                DeviceItem(
-                    device = device,
-                    isPaired = device.bondState == BluetoothDevice.BOND_BONDED,
-                    onClick = { bleManager.connect(device) }
+            item {
+                Text(
+                    text = "Heart Rate Mirror",
+                    style = HrmType.Title,
+                    color = TextPrimary,
+                    modifier = Modifier.padding(top = Dimens.ScreenEdge, bottom = Dimens.Section)
                 )
             }
-        }
 
-        ZoneSettingsRow(age = age, onClick = { editingAge = true })
+            item {
+                ConnectSection(
+                    lastDeviceName = lastDevice?.name,
+                    state = state,
+                    errorMessage = errorMessage,
+                    onConnectLast = {
+                        lastDevice?.let {
+                            bleManager.connect(bluetoothAdapter.getRemoteDevice(it.address))
+                        }
+                    },
+                    onToggleScan = toggleScan
+                )
+            }
+
+            foundDevices(devices = devices, onConnect = { bleManager.connect(it) })
+            recentDevices(
+                devices = recentDevices,
+                onConnect = { bleManager.connect(bluetoothAdapter.getRemoteDevice(it.address)) },
+                onForget = { forgettingDevice = it }
+            )
+            item { ZonesSection(age = age, onEdit = { editingAge = true }) }
+            recentSessions(sessions = sessions, maxHr = maxHr, onShowHistory = onShowHistory)
+        }
 
         AppVersionFooter()
     }
 }
 
-/**
- * Entry point for the one setting the zone model needs.
- *
- * With no age set this is a prompt rather than a status line, because until it is answered
- * every zone feature in the app is silently absent and nothing else would explain why.
- * Once set it recedes to a status line, showing the derived maximum so the number behind
- * the zones is inspectable rather than magic.
- */
-@Composable
-private fun ZoneSettingsRow(age: Int?, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 10.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        if (age == null) {
-            Text(
-                text = "Set your age to see heart rate zones",
-                color = Color(0xFFE53935).copy(alpha = 0.85f),
-                fontSize = 13.sp
-            )
-        } else {
-            Text(
-                text = "Zones for age $age  ·  max ${maxHrForAge(age)} bpm",
-                color = Color.White.copy(alpha = 0.4f),
-                fontSize = 12.sp
-            )
-        }
+@SuppressLint("MissingPermission")
+private fun LazyListScope.foundDevices(
+    devices: List<BluetoothDevice>,
+    onConnect: (BluetoothDevice) -> Unit
+) {
+    if (devices.isEmpty()) return
+    item { SectionHeader(title = "Found devices") }
+    items(devices, key = { it.address }) { device ->
+        DeviceRow(
+            name = device.name ?: "Unknown device",
+            detail = if (device.bondState == BluetoothDevice.BOND_BONDED) {
+                "Paired"
+            } else {
+                device.address
+            },
+            onClick = { onConnect(device) }
+        )
     }
 }
 
 /**
- * Version line and outbound links, shown at the foot of the scan screen.
+ * Every remembered device is listed, the last-used one included, because this is also
+ * where a device is forgotten and the primary button has no room for that.
+ */
+private fun LazyListScope.recentDevices(
+    devices: List<RecentDevice>,
+    onConnect: (RecentDevice) -> Unit,
+    onForget: (RecentDevice) -> Unit
+) {
+    if (devices.isEmpty()) return
+    item { SectionHeader(title = "Recent devices") }
+    items(devices, key = { "recent_${it.address}" }) { device ->
+        DeviceRow(
+            name = device.name,
+            detail = "Previously connected",
+            onClick = { onConnect(device) },
+            onForget = { onForget(device) }
+        )
+    }
+}
+
+/**
+ * Past sessions are the main reason to open the app when not about to train, so the
+ * latest few are shown here rather than behind a link that only counts them.
+ */
+private fun LazyListScope.recentSessions(
+    sessions: List<HrSession>,
+    maxHr: Int?,
+    onShowHistory: () -> Unit
+) {
+    if (sessions.isEmpty()) return
+    item {
+        SectionHeader(title = "Sessions", action = "All ${sessions.size}", onAction = onShowHistory)
+    }
+    items(sessions.take(HOME_SESSION_COUNT), key = { "session_${it.id}" }) { session ->
+        SessionSummaryRow(session = session, maxHr = maxHr, onClick = onShowHistory)
+    }
+}
+
+/**
+ * The way into a session: the primary button, the scan control beside or instead of it,
+ * and whatever the connection has to report.
+ */
+@Composable
+private fun ConnectSection(
+    lastDeviceName: String?,
+    state: ConnectionState,
+    errorMessage: String?,
+    onConnectLast: () -> Unit,
+    onToggleScan: () -> Unit
+) {
+    val scanning = state == ConnectionState.SCANNING
+    Column(verticalArrangement = Arrangement.spacedBy(Dimens.Md)) {
+        if (lastDeviceName != null) {
+            PrimaryButton(
+                text = "Connect $lastDeviceName",
+                onClick = onConnectLast,
+                trailingIcon = R.drawable.ic_arrow_forward
+            )
+            SecondaryButton(
+                text = if (scanning) "Stop scan" else "Scan for another device",
+                onClick = onToggleScan
+            )
+        } else {
+            PrimaryButton(
+                text = if (scanning) "Stop scan" else "Scan for devices",
+                onClick = onToggleScan
+            )
+            Text(
+                text = "Start HR Mirror on your watch, or put on your strap, then scan.",
+                style = HrmType.Body,
+                color = TextMuted
+            )
+        }
+
+        if (scanning) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(
+                    color = TextPrimary,
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp
+                )
+                Spacer(modifier = Modifier.width(Dimens.Sm))
+                Text(text = "Scanning", style = HrmType.Body, color = TextMuted)
+            }
+        }
+        if (state == ConnectionState.DISCONNECTED) {
+            StatusLine(text = errorMessage ?: "Connection lost. Scan to reconnect.")
+        }
+        if (state == ConnectionState.FAILED && errorMessage != null) {
+            StatusLine(text = errorMessage)
+        }
+    }
+}
+
+@Composable
+private fun ForgetDeviceDialog(device: RecentDevice, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(text = "Forget ${device.name}?") },
+        text = {
+            Text(
+                text = "It will be removed from your recent devices. Sessions " +
+                    "recorded with it are kept, and you can scan for it again."
+            )
+        },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(text = "Forget") } },
+        dismissButton = { MutedTextButton(text = "Cancel", onClick = onDismiss) }
+    )
+}
+
+/** A section title with an optional quiet action on the right, closed by a hairline. */
+@Composable
+private fun SectionHeader(
+    title: String,
+    action: String? = null,
+    onAction: () -> Unit = {}
+) {
+    Column(modifier = Modifier.padding(top = Dimens.Section)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = Dimens.MinTouch),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = title,
+                style = HrmType.Body,
+                fontWeight = FontWeight.SemiBold,
+                color = TextPrimary,
+                modifier = Modifier.weight(1f)
+            )
+            if (action != null) {
+                MutedTextButton(text = action, onClick = onAction)
+            }
+        }
+        HorizontalDivider(color = Hairline)
+    }
+}
+
+/**
+ * The one setting the zone model needs, and the legend for every zone colour in the app.
+ *
+ * With no age set this is a prompt rather than a status line, because until it is answered
+ * every zone feature in the app is silently absent and nothing else would explain why.
+ * Once set it shows the zones themselves with their boundaries, so the numbers behind the
+ * colours are inspectable rather than magic.
+ */
+@Composable
+private fun ZonesSection(age: Int?, onEdit: () -> Unit) {
+    if (age == null) {
+        SecondaryButton(
+            text = "Set your age to see heart rate zones",
+            onClick = onEdit,
+            modifier = Modifier.padding(top = Dimens.Section)
+        )
+        return
+    }
+    val maxHr = maxHrForAge(age)
+    Column {
+        SectionHeader(
+            title = "Your zones",
+            action = "Age $age · max $maxHr · Change",
+            onAction = onEdit
+        )
+        Spacer(modifier = Modifier.height(Dimens.Sm))
+        ZoneScale(maxHr = maxHr)
+    }
+}
+
+@Composable
+private fun DeviceRow(
+    name: String,
+    detail: String,
+    onClick: () -> Unit,
+    onForget: (() -> Unit)? = null
+) {
+    Column(modifier = Modifier.clickable(onClick = onClick)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = Dimens.ListRow),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = name,
+                    style = HrmType.Body,
+                    fontWeight = FontWeight.Medium,
+                    color = TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(text = detail, style = HrmType.BodySm, color = TextMuted)
+            }
+            if (onForget != null) {
+                MutedTextButton(text = "Forget", onClick = onForget)
+            } else {
+                Icon(
+                    painter = painterResource(R.drawable.ic_arrow_forward),
+                    contentDescription = "Connect",
+                    tint = TextMuted,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+        HorizontalDivider(color = Hairline)
+    }
+}
+
+@Composable
+private fun SessionSummaryRow(session: HrSession, maxHr: Int?, onClick: () -> Unit) {
+    val dateFormat = remember { SimpleDateFormat("MMM d", Locale.getDefault()) }
+    val date = remember(session.startTime) { dateFormat.format(Date(session.startTime)) }
+    val zoneTimes = remember(session.id, maxHr) {
+        if (maxHr != null) timeInZones(session.readings, maxHr) else emptyMap()
+    }
+
+    Column(modifier = Modifier.clickable(onClick = onClick)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = Dimens.ListRow),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = session.sessionName.ifEmpty { date },
+                    style = HrmType.Body,
+                    fontWeight = FontWeight.Medium,
+                    color = TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = if (session.sessionName.isEmpty()) {
+                        formatDuration(session.durationMs)
+                    } else {
+                        "$date · ${formatDuration(session.durationMs)}"
+                    },
+                    style = HrmType.BodySm,
+                    color = TextMuted
+                )
+            }
+            Spacer(modifier = Modifier.width(Dimens.Md))
+            ZoneBar(timeInZones = zoneTimes, modifier = Modifier.width(84.dp))
+            Spacer(modifier = Modifier.width(Dimens.Md))
+            Text(text = "${session.avgBpm}", style = HrmType.NumeralLg, color = TextPrimary)
+            Spacer(modifier = Modifier.width(Dimens.Xs))
+            Text(text = "avg", style = HrmType.BodySm, color = TextMuted)
+        }
+        HorizontalDivider(color = Hairline)
+    }
+}
+
+/**
+ * Version line and outbound links, shown at the foot of the home screen.
  *
  * The version comes from [BuildConfig.VERSION_NAME] rather than a literal, so it and the
  * release-notes URL both follow versionName in app/build.gradle.kts and cannot go stale on
@@ -307,133 +464,22 @@ private fun AppVersionFooter() {
     val version = BuildConfig.VERSION_NAME
 
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 12.dp, bottom = 4.dp),
-        horizontalArrangement = Arrangement.Center,
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Stays the most legible thing in the footer. The links were what needed to
-        // recede; the version is the one part worth being able to read off a screenshot
-        // when someone reports a problem.
-        Text(
-            text = "v$version",
-            color = Color.White.copy(alpha = 0.5f),
-            fontSize = 12.sp
+        // The version is the one part worth being able to read off a screenshot when
+        // someone reports a problem.
+        Text(text = "v$version", style = HrmType.BodySm, color = TextMuted)
+        Spacer(modifier = Modifier.width(Dimens.Md))
+        MutedTextButton(
+            text = "Release notes",
+            onClick = { uriHandler.openUri("$REPO_URL/releases/tag/v$version") }
         )
-        FooterSeparator()
-        FooterLink("Release notes") {
-            uriHandler.openUri("$REPO_URL/releases/tag/v$version")
-        }
-        FooterSeparator()
-        FooterLink("GitHub") {
-            uriHandler.openUri(REPO_URL)
-        }
+        MutedTextButton(text = "GitHub", onClick = { uriHandler.openUri(REPO_URL) })
     }
-}
-
-@Composable
-private fun FooterSeparator() {
-    Text(
-        text = "  ·  ",
-        color = Color.White.copy(alpha = 0.2f),
-        fontSize = 11.sp
-    )
-}
-
-/**
- * Deliberately quiet: neutral rather than accent-coloured, and not underlined.
- *
- * These links are for the rare occasion someone wants the source or the changelog, but
- * red-and-underlined gave them more pull than the session history sitting above them.
- * They stay tappable and legible; they just stop competing.
- */
-@Composable
-private fun FooterLink(label: String, onClick: () -> Unit) {
-    Text(
-        text = label,
-        color = Color.White.copy(alpha = 0.35f),
-        fontSize = 11.sp,
-        modifier = Modifier.clickable(onClick = onClick)
-    )
 }
 
 private const val REPO_URL = "https://github.com/darthrater78/android-heartrate"
 
-@Composable
-private fun RecentDeviceItem(device: RecentDevice, onClick: () -> Unit) {
-    Card(
-        onClick = onClick,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column {
-                Text(
-                    text = device.name,
-                    color = Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    text = "Previously connected",
-                    color = Color.White.copy(alpha = 0.4f),
-                    fontSize = 12.sp
-                )
-            }
-            Text(
-                text = "Connect",
-                color = Color(0xFFE53935),
-                fontSize = 14.sp
-            )
-        }
-    }
-}
-
-@SuppressLint("MissingPermission")
-@Composable
-private fun DeviceItem(device: BluetoothDevice, isPaired: Boolean, onClick: () -> Unit) {
-    Card(
-        onClick = onClick,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column {
-                Text(
-                    text = device.name ?: "Unknown Device",
-                    color = Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    text = if (isPaired) "Paired" else device.address,
-                    color = if (isPaired) Color(0xFFE53935).copy(alpha = 0.7f)
-                            else Color.White.copy(alpha = 0.4f),
-                    fontSize = 12.sp
-                )
-            }
-            Text(
-                text = "Connect",
-                color = Color(0xFFE53935),
-                fontSize = 14.sp
-            )
-        }
-    }
-}
+/** How many of the latest sessions the home screen previews before "All". */
+private const val HOME_SESSION_COUNT = 3

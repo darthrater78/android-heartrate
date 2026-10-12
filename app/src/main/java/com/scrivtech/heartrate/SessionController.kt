@@ -2,6 +2,8 @@ package com.scrivtech.heartrate
 
 import android.content.Context
 import com.scrivtech.heartrate.data.HrSession
+import com.scrivtech.heartrate.data.MIN_SAVED_SESSION_MS
+import com.scrivtech.heartrate.data.recordedSpanMs
 import com.scrivtech.heartrate.data.Storage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -57,7 +59,8 @@ class SessionController(
     /**
      * Writes the session that just ended to history. Sessions are saved unnamed — the user
      * names them afterwards from Session History, which shows the date until they do. A
-     * session of fewer than two readings has nothing to graph and is dropped.
+     * session whose readings span less than [MIN_SAVED_SESSION_MS] is dropped; the live
+     * screen says so while a session is still that short.
      *
      * The session is assembled here, before the manager's state moves on, but written on
      * [Dispatchers.IO]: saving parses and rewrites the whole history, which is long enough
@@ -65,7 +68,7 @@ class SessionController(
      */
     private fun saveCompletedSession() {
         val readings = bleManager.sessionReadings.value
-        if (readings.size >= 2) {
+        if (readings.recordedSpanMs() >= MIN_SAVED_SESSION_MS) {
             val session = HrSession(
                 id = UUID.randomUUID().toString(),
                 sessionName = "",
