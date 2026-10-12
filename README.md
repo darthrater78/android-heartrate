@@ -4,6 +4,14 @@ Android app that displays live heart rate from a BLE heart rate monitor on your 
 
 **[GitHub](https://github.com/darthrater78/android-heartrate)** · **[v1.8.0 release notes](https://github.com/darthrater78/android-heartrate/releases/tag/v1.8.0)**
 
+<p>
+  <img src="docs/screens/home.png" width="250" alt="Home screen: a Connect button for the last device, recent devices with a Forget action, your zones with their bpm boundaries, and the latest sessions">
+  <img src="docs/screens/live.png" width="250" alt="Live session: a large centred heart rate of 142 bpm, a Cardio zone chip, a zone scale with a marker, a five-minute graph over zone bands, and time in each zone">
+  <img src="docs/screens/history.png" width="250" alt="Session history: a session with average, maximum and minimum heart rate, time in each zone, and a graph over zone bands">
+</p>
+
+*Design mockups of v1.8.0 with sample data, not captures from a device.*
+
 ## Features
 
 - Connects to any standard BLE Heart Rate Profile (0x180D) device
