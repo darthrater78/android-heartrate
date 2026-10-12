@@ -76,7 +76,8 @@ Nothing leaves the device. There is no internet permission, no analytics, and no
 Session history — heart rate readings, timestamps, session names, and the paired device's
 name and address — is written to app-private `SharedPreferences` at
 `/data/data/com.scrivtech.heartrate/shared_prefs/heartrate_data.xml`. Individual sessions
-can be deleted from the Session History screen.
+can be deleted from the Session History screen, and a remembered device can be forgotten
+from the Recent devices list on the home screen.
 
 Your age is stored in the same file, as a single integer, because heart rate zones are
 percentages of a maximum derived from it. It is never sent anywhere, and the app asks for

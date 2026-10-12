@@ -20,10 +20,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -44,6 +46,7 @@ import com.scrivtech.heartrate.BuildConfig
 import com.scrivtech.heartrate.ConnectionState
 import com.scrivtech.heartrate.R
 import com.scrivtech.heartrate.data.HrSession
+import com.scrivtech.heartrate.data.RecentDevice
 import com.scrivtech.heartrate.data.Storage
 import com.scrivtech.heartrate.data.maxHrForAge
 import com.scrivtech.heartrate.data.timeInZones
@@ -70,7 +73,8 @@ fun ScanScreen(
     val state by bleManager.state.collectAsState()
     val devices by bleManager.devices.collectAsState()
     val errorMessage by bleManager.errorMessage.collectAsState()
-    val recentDevices = remember { storage.getRecentDevices() }
+    var recentDevices by remember { mutableStateOf(storage.getRecentDevices()) }
+    var forgettingDevice by remember { mutableStateOf<RecentDevice?>(null) }
     val sessions = remember { storage.getSessions() }
     var editingAge by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -92,6 +96,33 @@ fun ScanScreen(
         )
     }
 
+    forgettingDevice?.let { device ->
+        AlertDialog(
+            onDismissRequest = { forgettingDevice = null },
+            title = { Text(text = "Forget ${device.name}?") },
+            text = {
+                Text(
+                    text = "It will be removed from your recent devices. Sessions " +
+                        "recorded with it are kept, and you can scan for it again."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        storage.removeRecentDevice(device.address)
+                        recentDevices = storage.getRecentDevices()
+                        forgettingDevice = null
+                    }
+                ) {
+                    Text(text = "Forget")
+                }
+            },
+            dismissButton = {
+                MutedTextButton(text = "Cancel", onClick = { forgettingDevice = null })
+            }
+        )
+    }
+
     LaunchedEffect(state) {
         if (state == ConnectionState.SCANNING) {
             delay(30_000)
@@ -103,7 +134,6 @@ fun ScanScreen(
     // The device used last time is the likeliest one to be wanted now, so it gets the one
     // primary button and connecting is a single tap. Scanning steps down to secondary.
     val lastDevice = recentDevices.firstOrNull()
-    val olderDevices = recentDevices.drop(1)
 
     Column(
         modifier = Modifier
@@ -187,15 +217,19 @@ fun ScanScreen(
                 }
             }
 
-            if (olderDevices.isNotEmpty()) {
+            // Every remembered device is listed, the last-used one included, because this
+            // is also where a device is forgotten and the primary button has no room for
+            // that.
+            if (recentDevices.isNotEmpty()) {
                 item { SectionHeader(title = "Recent devices") }
-                items(olderDevices, key = { "recent_${it.address}" }) { device ->
+                items(recentDevices, key = { "recent_${it.address}" }) { device ->
                     DeviceRow(
                         name = device.name,
                         detail = "Previously connected",
                         onClick = {
                             bleManager.connect(bluetoothAdapter.getRemoteDevice(device.address))
-                        }
+                        },
+                        onForget = { forgettingDevice = device }
                     )
                 }
             }
@@ -283,7 +317,12 @@ private fun ZonesSection(age: Int?, onEdit: () -> Unit) {
 }
 
 @Composable
-private fun DeviceRow(name: String, detail: String, onClick: () -> Unit) {
+private fun DeviceRow(
+    name: String,
+    detail: String,
+    onClick: () -> Unit,
+    onForget: (() -> Unit)? = null
+) {
     Column(modifier = Modifier.clickable(onClick = onClick)) {
         Row(
             modifier = Modifier
@@ -302,12 +341,16 @@ private fun DeviceRow(name: String, detail: String, onClick: () -> Unit) {
                 )
                 Text(text = detail, style = HrmType.BodySm, color = TextMuted)
             }
-            Icon(
-                painter = painterResource(R.drawable.ic_arrow_forward),
-                contentDescription = "Connect",
-                tint = TextMuted,
-                modifier = Modifier.size(24.dp)
-            )
+            if (onForget != null) {
+                MutedTextButton(text = "Forget", onClick = onForget)
+            } else {
+                Icon(
+                    painter = painterResource(R.drawable.ic_arrow_forward),
+                    contentDescription = "Connect",
+                    tint = TextMuted,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
         }
         HorizontalDivider(color = Hairline)
     }
