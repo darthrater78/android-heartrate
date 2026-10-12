@@ -1,0 +1,36 @@
+name: Dependency review
+
+# Warns on a pull request that adds or bumps a library with a known vulnerability, before
+# it is merged. Dependabot alerts cover what is already on master; this covers what a PR
+# is about to bring in.
+#
+# This is the one workflow with a `pull_request` trigger: the check compares the PR's base
+# and head, which a push event does not have.
+on:
+  pull_request:
+    paths:
+      - 'gradle/**'
+      - '**/*.gradle.kts'
+      - 'gradle.properties'
+      - '.github/workflows/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
