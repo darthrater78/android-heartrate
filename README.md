@@ -104,6 +104,53 @@ Reconsider this if the app ever stores something that grants access to anything 
 as an account token or a cloud sync credential. Heart rate history on its own does not
 justify the trade.
 
+## Security architecture
+
+How the app is built with regard to security, in statements that can be checked against
+the code.
+
+### Design
+
+- **Input.** The only outside input is Bluetooth LE: scan results and the heart rate
+  characteristic of the device you choose. Payloads are treated as untrusted; a reading
+  outside a plausible range is dropped (`BleHeartRateManager.publishHeartRate`). The two
+  typed inputs are bounded: age is digits only within a fixed range, and session names are
+  capped at 60 characters.
+- **Components.** `MainActivity` is the only exported component, and only as the
+  launcher. The session service is not exported, and its notification actions use
+  explicit, immutable `PendingIntent`s.
+- **Network.** None. The app holds no internet permission, so nothing can be sent or
+  fetched. Fonts are bundled in the APK rather than downloaded. See
+  [Permissions](#permissions).
+- **Storage.** Session history, recent devices and your age are kept in app-private
+  `SharedPreferences`, excluded from cloud backup and device transfer, and not encrypted
+  by the app. The reasoning is in [Data Storage and Privacy](#data-storage-and-privacy).
+- **Logging.** Log lines describe the connection lifecycle only. They carry no heart rate
+  readings, device addresses or names.
+- **Dependencies.** Versions are pinned in `gradle/libs.versions.toml`, and Dependabot
+  watches both the Gradle dependencies and the GitHub Actions. The Gradle distribution is
+  pinned by checksum, and CI validates the wrapper jar before running it.
+- **Releases.** Every action in the workflows is pinned to a commit SHA. A release is
+  built only from a tag on `master` whose commit passed the Build workflow and whose
+  `versionName` matches the tag. Release builds are minified with R8, signed with a key
+  held only in the repository's secrets, and carry a build provenance attestation.
+- **Signing key isolation.** The APK is built unsigned on a runner that is given no
+  secrets, then signed on a second runner with the Android SDK's `apksigner`. Gradle,
+  which downloads and runs plugins and dependencies, never shares a machine with the key.
+  Pull requests that change dependencies are checked for known vulnerabilities.
+
+### Changes
+
+- **2026-10-12, unreleased.** The release workflow used to write the signing keystore to
+  disk and then run Gradle in the same job, so a compromised plugin or dependency could
+  have read it. Building and signing now run in separate jobs, and a dependency review
+  check was added for pull requests.
+
+- **2026-10-03, v1.7.0.** Release APKs gained a build provenance attestation, and CI began
+  validating the Gradle wrapper jar before the signing key is decoded.
+- **2026-09-24, v1.6.0.** Session history was excluded from Android 12+ device-to-device
+  transfer (cloud backup was already off), and session names were capped at 60 characters.
+
 ## Requirements
 
 - Android 12+ (API 31)

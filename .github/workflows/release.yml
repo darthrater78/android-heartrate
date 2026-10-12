@@ -109,19 +109,17 @@ jobs:
             sleep 20
           done
 
-  release:
-    name: Build signed APK
+  # The build and the signing run on separate runners. Gradle downloads and executes
+  # plugins and dependencies, so this job is given no secrets at all: a compromised
+  # dependency has no signing key to read. The release job below never runs Gradle.
+  build:
+    name: Build unsigned APK
     needs: gate
     # `needs` on a skipped job skips this one too, so a manual run -- where the gate
     # does not apply -- is let through explicitly. A failed gate still stops it.
     if: ${{ !cancelled() && (needs.gate.result == 'success' || (github.event_name == 'workflow_dispatch' && needs.gate.result == 'skipped')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    permissions:
-      contents: write
-      # Build provenance: id-token signs the attestation, attestations stores it.
-      id-token: write
-      attestations: write
 
     steps:
       - name: Check out the commit
@@ -130,7 +128,6 @@ jobs:
           persist-credentials: false
 
       - name: Validate the Gradle wrapper
-        # Runs before the keystore is decoded, so a substituted wrapper jar never sees it.
         uses: gradle/actions/wrapper-validation@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
 
       - name: Set up JDK 17
@@ -139,6 +136,53 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: gradle
+
+      - name: Build unsigned release APK
+        # No signing variables are set, so the build falls back to unsigned
+        # (see app/build.gradle.kts).
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: Hand the unsigned APK to the release job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: unsigned-apk
+          path: app/build/outputs/apk/release/app-release-unsigned.apk
+          if-no-files-found: error
+          retention-days: 1
+
+      # R8's own account of what it renamed (mapping.txt), kept (seeds.txt) and removed
+      # (usage.txt). Only produced when minification is on, and only collected on a
+      # manual run: mapping.txt is the deobfuscation key, so it must not be attached to
+      # a public release.
+      - name: Attach R8 mapping output to this run
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: r8-mapping
+          path: app/build/outputs/mapping/release/
+          if-no-files-found: ignore
+
+  release:
+    name: Sign and publish
+    needs: [gate, build]
+    # An explicit status check, because on a manual run the gate above is skipped and a
+    # skipped ancestor would otherwise skip this job too.
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      # Build provenance: id-token signs the attestation, attestations stores it.
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Check out the commit
+        # Read for the version and the release notes only. Nothing in the checkout is
+        # executed in this job.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Read version from build.gradle.kts
         id: version
@@ -150,6 +194,12 @@ jobs:
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch the unsigned APK
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: unsigned-apk
+          path: unsigned
 
       - name: Decode release keystore
         env:
@@ -163,13 +213,37 @@ jobs:
           fi
           printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH"
 
-      - name: Build signed release APK
+      - name: Sign the APK
+        # apksigner comes from the Android SDK already on the runner, so nothing is
+        # downloaded while the keystore is on disk. Passwords are read from the
+        # environment by apksigner itself and never appear on a command line.
         env:
-          RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/release.keystore
+          KEYSTORE_PATH: ${{ runner.temp }}/release.keystore
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-        run: ./gradlew assembleRelease --stacktrace
+        run: |
+          set -euo pipefail
+          tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n1)"
+          if [ ! -x "$tools/apksigner" ]; then
+            echo "::error::apksigner not found under $ANDROID_HOME/build-tools"
+            exit 1
+          fi
+          mkdir -p signed
+          "$tools/apksigner" sign \
+            --ks "$KEYSTORE_PATH" \
+            --ks-key-alias "$RELEASE_KEY_ALIAS" \
+            --ks-pass env:RELEASE_KEYSTORE_PASSWORD \
+            --key-pass env:RELEASE_KEY_PASSWORD \
+            --v2-signing-enabled true \
+            --out signed/app-release.apk \
+            unsigned/app-release-unsigned.apk
+          certs="$("$tools/apksigner" verify --print-certs signed/app-release.apk)"
+          printf '%s\n' "$certs"
+          if printf '%s\n' "$certs" | grep -q 'Android Debug'; then
+            echo "::error::APK is signed with a debug key; refusing to continue."
+            exit 1
+          fi
 
       - name: Delete release keystore
         if: always()
@@ -184,13 +258,9 @@ jobs:
           EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          apk=$(find app/build/outputs/apk/release -name '*.apk' -type f | head -n1)
-          if [ -z "$apk" ]; then
-            echo "::error::No release APK found in app/build/outputs/apk/release"
-            exit 1
-          fi
-          if ! find app/build/outputs/apk/release -name '*.apk' -type f | grep -qv -- '-unsigned'; then
-            echo "::error::Release APK is unsigned; check the signing secrets."
+          apk=signed/app-release.apk
+          if [ ! -s "$apk" ]; then
+            echo "::error::No signed APK at $apk"
             exit 1
           fi
           # A manual run is a diagnostic build. Name it so it can never be mistaken
@@ -218,18 +288,6 @@ jobs:
           name: heart-rate-mirror-apk
           path: out/*.apk
           if-no-files-found: error
-
-      # R8's own account of what it renamed (mapping.txt), kept (seeds.txt) and removed
-      # (usage.txt). Only produced when minification is on, and only collected on a
-      # manual run: mapping.txt is the deobfuscation key, so it must not be attached to
-      # a public release.
-      - name: Attach R8 mapping output to this run
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: r8-mapping
-          path: app/build/outputs/mapping/release/
-          if-no-files-found: ignore
 
       - name: Extract release notes from the README
         if: github.event_name == 'push'
