@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,6 +18,7 @@ import androidx.compose.runtime.setValue
 import com.scrivtech.heartrate.data.Storage
 import com.scrivtech.heartrate.data.maxHrForAge
 import com.scrivtech.heartrate.ui.HeartRateScreen
+import com.scrivtech.heartrate.ui.LeaveDialog
 import com.scrivtech.heartrate.ui.ScanScreen
 import com.scrivtech.heartrate.ui.SessionHistoryScreen
 import com.scrivtech.heartrate.ui.theme.HeartRateMirrorTheme
@@ -80,7 +82,31 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            // The back gesture is easy to make by accident, most of all mid-workout with
+            // the phone propped up. From history it goes back to home; anywhere else it
+            // would leave the app, so it asks first.
+            var confirmingLeave by remember { mutableStateOf(false) }
+            BackHandler(enabled = !confirmingLeave) {
+                if (currentScreen == Screen.SESSION_HISTORY) {
+                    currentScreen = Screen.SCAN
+                } else {
+                    confirmingLeave = true
+                }
+            }
+
             HeartRateMirrorTheme {
+                if (confirmingLeave) {
+                    LeaveDialog(
+                        inSession = inSession,
+                        onStay = { confirmingLeave = false },
+                        onLeave = {
+                            confirmingLeave = false
+                            // What the system back gesture does for a launcher activity:
+                            // the task goes to the background and the Activity survives.
+                            moveTaskToBack(true)
+                        }
+                    )
+                }
                 when (currentScreen) {
                     Screen.HEART_RATE -> HeartRateScreen(
                         bleManager = bleManager,
