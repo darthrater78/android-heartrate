@@ -7,10 +7,11 @@ colors:
   surface-dialog: "#16181C"
   text: "#F2F3F5"
   text-muted: "#A3A8B0"
+  text-disabled: "#7E858F"
   hairline: "#2A2E35"
   outline: "#6B727D"
-  action: "#F2F3F5"
-  on-action: "#0B0C0E"
+  primary: "#F2F3F5"
+  on-primary: "#0B0C0E"
   zone-below: "#8A93A0"
   zone-fat-burn: "#38B6C8"
   zone-cardio: "#F2A93B"
@@ -74,8 +75,8 @@ components:
     textColor: "{colors.text-muted}"
     typography: "{typography.body-sm}"
   button-primary:
-    backgroundColor: "{colors.action}"
-    textColor: "{colors.on-action}"
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.on-primary}"
     typography: "{typography.label-lg}"
     rounded: "{rounded.md}"
     height: 56px
@@ -92,9 +93,20 @@ components:
     height: 48px
   button-disabled:
     backgroundColor: "{colors.ground}"
-    textColor: "{colors.outline}"
+    textColor: "{colors.text-disabled}"
     typography: "{typography.label-lg}"
     height: 48px
+  button-disabled-dialog:
+    backgroundColor: "{colors.surface-dialog}"
+    textColor: "{colors.text-disabled}"
+    typography: "{typography.label-lg}"
+    height: 48px
+  divider:
+    backgroundColor: "{colors.hairline}"
+    height: 1px
+  control-border:
+    backgroundColor: "{colors.outline}"
+    height: 1px
   zone-chip-below:
     backgroundColor: "{colors.zone-below}"
     textColor: "{colors.on-zone}"
@@ -148,8 +160,8 @@ A training instrument, not a dashboard: one person reads it at arm's length, mid
 ## Colors
 
 - **Ground (#0B0C0E):** every screen background. No filled cards on it.
-- **Text (#F2F3F5) / Text muted (#A3A8B0):** the only two text tones. No alpha greys.
-- **Action (#F2F3F5) with On-action (#0B0C0E):** the primary button. There is no brand accent.
+- **Text (#F2F3F5) / Text muted (#A3A8B0):** the only two text tones. No alpha greys. **Text disabled (#7E858F)** is for disabled buttons only and still meets 4.5:1.
+- **Primary (#F2F3F5) with On-primary (#0B0C0E):** the primary button. It is the text colour, not a brand accent; there is none.
 - **Outline (#6B727D):** borders of secondary buttons and text fields (3:1 on ground). **Hairline (#2A2E35):** row dividers only.
 - **Zones:** Below #8A93A0, Fat burn #38B6C8, Cardio #F2A93B, Peak #FF5A6E. They differ in lightness as well as hue. Text on a zone fill is On-zone (#0B0C0E).
 - Colour appears only where it means a zone. Zone colour always comes from `zoneColor(zone)` using the age-based zone; no colour is derived from a raw bpm value.
@@ -182,7 +194,7 @@ None. No shadows, no tonal surfaces. Separation is by 1dp hairlines and spacing.
 
 ## Components
 
-- **Primary button:** action fill, on-action text, 56dp, full width. One per screen.
+- **Primary button:** primary fill, on-primary text, 56dp, full width. One per screen.
 - **Secondary button:** 1dp outline, text colour, 48dp, full width.
 - **Text button:** text-muted, 48dp target. Destructive actions are text buttons too, and always confirm in a dialog; they are not coloured.
 - **Zone chip:** zone fill, on-zone text, 36dp. Names the current zone on the live screen.

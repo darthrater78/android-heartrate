@@ -7,8 +7,10 @@ val Ground = Color(0xFF0B0C0E)
 val SurfaceDialog = Color(0xFF16181C)
 val TextPrimary = Color(0xFFF2F3F5)
 val TextMuted = Color(0xFFA3A8B0)
+val TextDisabled = Color(0xFF7E858F)
 val Hairline = Color(0xFF2A2E35)
 val Outline = Color(0xFF6B727D)
+// DESIGN.md calls these primary and on-primary.
 val Action = Color(0xFFF2F3F5)
 val OnAction = Color(0xFF0B0C0E)
 

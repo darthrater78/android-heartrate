@@ -29,6 +29,7 @@ import com.scrivtech.heartrate.ui.theme.HrmType
 import com.scrivtech.heartrate.ui.theme.OnAction
 import com.scrivtech.heartrate.ui.theme.Outline
 import com.scrivtech.heartrate.ui.theme.ShapeMd
+import com.scrivtech.heartrate.ui.theme.TextDisabled
 import com.scrivtech.heartrate.ui.theme.TextMuted
 import com.scrivtech.heartrate.ui.theme.TextPrimary
 
@@ -100,7 +101,7 @@ fun MutedTextButton(
         shape = ShapeMd,
         colors = ButtonDefaults.textButtonColors(
             contentColor = TextMuted,
-            disabledContentColor = Outline
+            disabledContentColor = TextDisabled
         ),
         contentPadding = PaddingValues(horizontal = Dimens.Sm)
     ) {

@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -19,6 +20,7 @@ import com.scrivtech.heartrate.data.Storage
 import com.scrivtech.heartrate.data.maxHrForAge
 import com.scrivtech.heartrate.ui.theme.Dimens
 import com.scrivtech.heartrate.ui.theme.HrmType
+import com.scrivtech.heartrate.ui.theme.TextDisabled
 import com.scrivtech.heartrate.ui.theme.TextMuted
 import com.scrivtech.heartrate.ui.theme.TextPrimary
 
@@ -78,7 +80,12 @@ fun AgeDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { if (valid) onSave(age!!) }, enabled = valid) {
+            TextButton(
+                onClick = { if (valid) onSave(age!!) },
+                enabled = valid,
+                // Material's default disabled text is 38% alpha, which falls under 4.5:1.
+                colors = ButtonDefaults.textButtonColors(disabledContentColor = TextDisabled)
+            ) {
                 Text(text = "Save")
             }
         },
