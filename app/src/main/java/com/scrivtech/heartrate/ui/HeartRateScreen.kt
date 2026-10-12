@@ -39,6 +39,8 @@ import androidx.compose.ui.unit.dp
 import com.scrivtech.heartrate.BleHeartRateManager
 import com.scrivtech.heartrate.ConnectionState
 import com.scrivtech.heartrate.data.HrZone
+import com.scrivtech.heartrate.data.MIN_SAVED_SESSION_MS
+import com.scrivtech.heartrate.data.recordedSpanMs
 import com.scrivtech.heartrate.data.lowerBpm
 import com.scrivtech.heartrate.data.timeInZones
 import com.scrivtech.heartrate.data.zoneFor
@@ -72,11 +74,7 @@ fun HeartRateScreen(bleManager: BleHeartRateManager, maxHr: Int?) {
     val zoneTimes = remember(sessionReadings, maxHr) {
         if (maxHr != null) timeInZones(sessionReadings, maxHr) else emptyMap()
     }
-    val elapsedMs = if (sessionReadings.size >= 2) {
-        sessionReadings.last().timestampMs - sessionReadings.first().timestampMs
-    } else {
-        0L
-    }
+    val elapsedMs = sessionReadings.recordedSpanMs()
 
     Column(
         modifier = Modifier
@@ -198,6 +196,16 @@ fun HeartRateScreen(bleManager: BleHeartRateManager, maxHr: Int?) {
         }
 
         Spacer(modifier = Modifier.height(Dimens.Md))
+        // Said up front, so ending early is a choice rather than a session that silently
+        // fails to appear in history.
+        if (elapsedMs < MIN_SAVED_SESSION_MS) {
+            Text(
+                text = "Sessions under a minute are not saved",
+                style = HrmType.BodySm,
+                color = TextMuted,
+                modifier = Modifier.padding(bottom = Dimens.Sm)
+            )
+        }
         SecondaryButton(text = "End session", onClick = { bleManager.disconnect() })
     }
 }
