@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -31,6 +32,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -56,7 +58,9 @@ import com.scrivtech.heartrate.ui.theme.Hairline
 import com.scrivtech.heartrate.ui.theme.HrmType
 import com.scrivtech.heartrate.ui.theme.TextMuted
 import com.scrivtech.heartrate.ui.theme.TextPrimary
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -75,7 +79,11 @@ fun ScanScreen(
     val errorMessage by bleManager.errorMessage.collectAsState()
     var recentDevices by remember { mutableStateOf(storage.getRecentDevices()) }
     var forgettingDevice by remember { mutableStateOf<RecentDevice?>(null) }
-    val sessions = remember { storage.getSessions() }
+    // Parsing the whole history is too slow for the main thread once it grows, so the
+    // screen draws first and the sessions section appears when the read finishes.
+    val sessions by produceState(initialValue = emptyList<HrSession>()) {
+        value = withContext(Dispatchers.IO) { storage.getSessions() }
+    }
     var editingAge by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val maxHr = age?.let { maxHrForAge(it) }
@@ -97,28 +105,13 @@ fun ScanScreen(
     }
 
     forgettingDevice?.let { device ->
-        AlertDialog(
-            onDismissRequest = { forgettingDevice = null },
-            title = { Text(text = "Forget ${device.name}?") },
-            text = {
-                Text(
-                    text = "It will be removed from your recent devices. Sessions " +
-                        "recorded with it are kept, and you can scan for it again."
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        storage.removeRecentDevice(device.address)
-                        recentDevices = storage.getRecentDevices()
-                        forgettingDevice = null
-                    }
-                ) {
-                    Text(text = "Forget")
-                }
-            },
-            dismissButton = {
-                MutedTextButton(text = "Cancel", onClick = { forgettingDevice = null })
+        ForgetDeviceDialog(
+            device = device,
+            onDismiss = { forgettingDevice = null },
+            onConfirm = {
+                storage.removeRecentDevice(device.address)
+                recentDevices = storage.getRecentDevices()
+                forgettingDevice = null
             }
         )
     }
@@ -155,106 +148,162 @@ fun ScanScreen(
             }
 
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(Dimens.Md)) {
-                    if (lastDevice != null) {
-                        PrimaryButton(
-                            text = "Connect ${lastDevice.name}",
-                            onClick = {
-                                bleManager.connect(
-                                    bluetoothAdapter.getRemoteDevice(lastDevice.address)
-                                )
-                            },
-                            trailingIcon = R.drawable.ic_arrow_forward
-                        )
-                        SecondaryButton(
-                            text = if (scanning) "Stop scan" else "Scan for another device",
-                            onClick = toggleScan
-                        )
-                    } else {
-                        PrimaryButton(
-                            text = if (scanning) "Stop scan" else "Scan for devices",
-                            onClick = toggleScan
-                        )
-                        Text(
-                            text = "Start HR Mirror on your watch, or put on your strap, then scan.",
-                            style = HrmType.Body,
-                            color = TextMuted
-                        )
-                    }
-
-                    if (scanning) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(
-                                color = TextPrimary,
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(modifier = Modifier.width(Dimens.Sm))
-                            Text(text = "Scanning", style = HrmType.Body, color = TextMuted)
+                ConnectSection(
+                    lastDeviceName = lastDevice?.name,
+                    state = state,
+                    errorMessage = errorMessage,
+                    onConnectLast = {
+                        lastDevice?.let {
+                            bleManager.connect(bluetoothAdapter.getRemoteDevice(it.address))
                         }
-                    }
-                    if (state == ConnectionState.DISCONNECTED) {
-                        StatusLine(text = errorMessage ?: "Connection lost. Scan to reconnect.")
-                    }
-                    if (state == ConnectionState.FAILED && errorMessage != null) {
-                        StatusLine(text = errorMessage!!)
-                    }
-                }
+                    },
+                    onToggleScan = toggleScan
+                )
             }
 
-            if (devices.isNotEmpty()) {
-                item { SectionHeader(title = "Found devices") }
-                items(devices, key = { it.address }) { device ->
-                    DeviceRow(
-                        name = device.name ?: "Unknown device",
-                        detail = if (device.bondState == BluetoothDevice.BOND_BONDED) {
-                            "Paired"
-                        } else {
-                            device.address
-                        },
-                        onClick = { bleManager.connect(device) }
-                    )
-                }
-            }
-
-            // Every remembered device is listed, the last-used one included, because this
-            // is also where a device is forgotten and the primary button has no room for
-            // that.
-            if (recentDevices.isNotEmpty()) {
-                item { SectionHeader(title = "Recent devices") }
-                items(recentDevices, key = { "recent_${it.address}" }) { device ->
-                    DeviceRow(
-                        name = device.name,
-                        detail = "Previously connected",
-                        onClick = {
-                            bleManager.connect(bluetoothAdapter.getRemoteDevice(device.address))
-                        },
-                        onForget = { forgettingDevice = device }
-                    )
-                }
-            }
-
+            foundDevices(devices = devices, onConnect = { bleManager.connect(it) })
+            recentDevices(
+                devices = recentDevices,
+                onConnect = { bleManager.connect(bluetoothAdapter.getRemoteDevice(it.address)) },
+                onForget = { forgettingDevice = it }
+            )
             item { ZonesSection(age = age, onEdit = { editingAge = true }) }
-
-            // Past sessions are the main reason to open the app when not about to train,
-            // so the latest few are shown here rather than behind a link that only counts
-            // them.
-            if (sessions.isNotEmpty()) {
-                item {
-                    SectionHeader(
-                        title = "Sessions",
-                        action = "All ${sessions.size}",
-                        onAction = onShowHistory
-                    )
-                }
-                items(sessions.take(HOME_SESSION_COUNT), key = { "session_${it.id}" }) { session ->
-                    SessionSummaryRow(session = session, maxHr = maxHr, onClick = onShowHistory)
-                }
-            }
+            recentSessions(sessions = sessions, maxHr = maxHr, onShowHistory = onShowHistory)
         }
 
         AppVersionFooter()
     }
+}
+
+@SuppressLint("MissingPermission")
+private fun LazyListScope.foundDevices(
+    devices: List<BluetoothDevice>,
+    onConnect: (BluetoothDevice) -> Unit
+) {
+    if (devices.isEmpty()) return
+    item { SectionHeader(title = "Found devices") }
+    items(devices, key = { it.address }) { device ->
+        DeviceRow(
+            name = device.name ?: "Unknown device",
+            detail = if (device.bondState == BluetoothDevice.BOND_BONDED) {
+                "Paired"
+            } else {
+                device.address
+            },
+            onClick = { onConnect(device) }
+        )
+    }
+}
+
+/**
+ * Every remembered device is listed, the last-used one included, because this is also
+ * where a device is forgotten and the primary button has no room for that.
+ */
+private fun LazyListScope.recentDevices(
+    devices: List<RecentDevice>,
+    onConnect: (RecentDevice) -> Unit,
+    onForget: (RecentDevice) -> Unit
+) {
+    if (devices.isEmpty()) return
+    item { SectionHeader(title = "Recent devices") }
+    items(devices, key = { "recent_${it.address}" }) { device ->
+        DeviceRow(
+            name = device.name,
+            detail = "Previously connected",
+            onClick = { onConnect(device) },
+            onForget = { onForget(device) }
+        )
+    }
+}
+
+/**
+ * Past sessions are the main reason to open the app when not about to train, so the
+ * latest few are shown here rather than behind a link that only counts them.
+ */
+private fun LazyListScope.recentSessions(
+    sessions: List<HrSession>,
+    maxHr: Int?,
+    onShowHistory: () -> Unit
+) {
+    if (sessions.isEmpty()) return
+    item {
+        SectionHeader(title = "Sessions", action = "All ${sessions.size}", onAction = onShowHistory)
+    }
+    items(sessions.take(HOME_SESSION_COUNT), key = { "session_${it.id}" }) { session ->
+        SessionSummaryRow(session = session, maxHr = maxHr, onClick = onShowHistory)
+    }
+}
+
+/**
+ * The way into a session: the primary button, the scan control beside or instead of it,
+ * and whatever the connection has to report.
+ */
+@Composable
+private fun ConnectSection(
+    lastDeviceName: String?,
+    state: ConnectionState,
+    errorMessage: String?,
+    onConnectLast: () -> Unit,
+    onToggleScan: () -> Unit
+) {
+    val scanning = state == ConnectionState.SCANNING
+    Column(verticalArrangement = Arrangement.spacedBy(Dimens.Md)) {
+        if (lastDeviceName != null) {
+            PrimaryButton(
+                text = "Connect $lastDeviceName",
+                onClick = onConnectLast,
+                trailingIcon = R.drawable.ic_arrow_forward
+            )
+            SecondaryButton(
+                text = if (scanning) "Stop scan" else "Scan for another device",
+                onClick = onToggleScan
+            )
+        } else {
+            PrimaryButton(
+                text = if (scanning) "Stop scan" else "Scan for devices",
+                onClick = onToggleScan
+            )
+            Text(
+                text = "Start HR Mirror on your watch, or put on your strap, then scan.",
+                style = HrmType.Body,
+                color = TextMuted
+            )
+        }
+
+        if (scanning) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(
+                    color = TextPrimary,
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp
+                )
+                Spacer(modifier = Modifier.width(Dimens.Sm))
+                Text(text = "Scanning", style = HrmType.Body, color = TextMuted)
+            }
+        }
+        if (state == ConnectionState.DISCONNECTED) {
+            StatusLine(text = errorMessage ?: "Connection lost. Scan to reconnect.")
+        }
+        if (state == ConnectionState.FAILED && errorMessage != null) {
+            StatusLine(text = errorMessage)
+        }
+    }
+}
+
+@Composable
+private fun ForgetDeviceDialog(device: RecentDevice, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(text = "Forget ${device.name}?") },
+        text = {
+            Text(
+                text = "It will be removed from your recent devices. Sessions " +
+                    "recorded with it are kept, and you can scan for it again."
+            )
+        },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(text = "Forget") } },
+        dismissButton = { MutedTextButton(text = "Cancel", onClick = onDismiss) }
+    )
 }
 
 /** A section title with an optional quiet action on the right, closed by a hairline. */

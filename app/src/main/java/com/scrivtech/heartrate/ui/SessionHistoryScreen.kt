@@ -24,9 +24,11 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +45,9 @@ import com.scrivtech.heartrate.ui.theme.Hairline
 import com.scrivtech.heartrate.ui.theme.HrmType
 import com.scrivtech.heartrate.ui.theme.TextMuted
 import com.scrivtech.heartrate.ui.theme.TextPrimary
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -52,7 +57,20 @@ fun SessionHistoryScreen(
     storage: Storage,
     onBack: () -> Unit
 ) {
-    var sessions by remember { mutableStateOf(storage.getSessions()) }
+    // Null until the first read finishes. Reading, renaming and deleting each parse and
+    // rewrite the whole history, so all three run off the main thread; null also keeps
+    // the "no sessions" message from flashing up before the history has loaded.
+    var sessions by remember { mutableStateOf<List<HrSession>?>(null) }
+    val scope = rememberCoroutineScope()
+    fun reload(change: () -> Unit = {}) {
+        scope.launch {
+            sessions = withContext(Dispatchers.IO) {
+                change()
+                storage.getSessions()
+            }
+        }
+    }
+    LaunchedEffect(Unit) { reload() }
     // Zones are derived at render time from the stored readings, so sessions recorded
     // before an age was set still show a breakdown once one is, and changing the age
     // re-scores the whole history rather than leaving old sessions on stale bands.
@@ -83,8 +101,8 @@ fun SessionHistoryScreen(
                 TextButton(
                     onClick = {
                         renamingSession?.let { session ->
-                            storage.renameSession(session.id, renameInput.trim())
-                            sessions = storage.getSessions()
+                            val name = renameInput.trim()
+                            reload { storage.renameSession(session.id, name) }
                         }
                         dismiss()
                     }
@@ -105,8 +123,7 @@ fun SessionHistoryScreen(
                 TextButton(
                     onClick = {
                         deletingSession?.let { session ->
-                            storage.deleteSession(session.id)
-                            sessions = storage.getSessions()
+                            reload { storage.deleteSession(session.id) }
                         }
                         deletingSession = null
                     }
@@ -150,7 +167,10 @@ fun SessionHistoryScreen(
         )
         HorizontalDivider(color = Hairline)
 
-        if (sessions.isEmpty()) {
+        val loaded = sessions
+        if (loaded == null) {
+            // Still reading; the list replaces this within a frame or two.
+        } else if (loaded.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
                     text = "No sessions recorded yet",
@@ -160,7 +180,7 @@ fun SessionHistoryScreen(
             }
         } else {
             LazyColumn {
-                items(sessions, key = { it.id }) { session ->
+                items(loaded, key = { it.id }) { session ->
                     SessionEntry(
                         session = session,
                         maxHr = maxHr,

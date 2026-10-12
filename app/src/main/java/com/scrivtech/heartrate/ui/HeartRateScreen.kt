@@ -38,6 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.scrivtech.heartrate.BleHeartRateManager
 import com.scrivtech.heartrate.ConnectionState
+import com.scrivtech.heartrate.data.HrReading
 import com.scrivtech.heartrate.data.HrZone
 import com.scrivtech.heartrate.data.MIN_SAVED_SESSION_MS
 import com.scrivtech.heartrate.data.recordedSpanMs
@@ -92,66 +93,16 @@ fun HeartRateScreen(bleManager: BleHeartRateManager, maxHr: Int?) {
             verticalArrangement = Arrangement.spacedBy(Dimens.Section)
         ) {
             Column {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 44.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    PulseDot(bpm = if (live) bpm else null)
-                    Spacer(modifier = Modifier.width(Dimens.Sm))
-                    Text(
-                        text = deviceName ?: "",
-                        style = HrmType.Body,
-                        color = TextMuted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text(text = formatClock(elapsedMs), style = HrmType.NumeralLg, color = TextPrimary)
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.Bottom
-                ) {
-                    // An invisible twin of the unit label on the left, so the digits sit
-                    // on the screen's centre line rather than the digits-plus-unit group.
-                    Text(
-                        text = "bpm",
-                        style = HrmType.Body,
-                        modifier = Modifier
-                            .alpha(0f)
-                            .clearAndSetSemantics {}
-                    )
-                    Spacer(modifier = Modifier.width(Dimens.Sm))
-                    Text(
-                        text = if (live) "$bpm" else "--",
-                        style = HrmType.DisplayBpm,
-                        color = if (live) TextPrimary else TextMuted,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                    Spacer(modifier = Modifier.width(Dimens.Sm))
-                    Text(
-                        text = "bpm",
-                        style = HrmType.Body,
-                        color = TextMuted,
-                        modifier = Modifier.padding(bottom = Dimens.Md)
-                    )
-                }
-
+                SessionHeader(
+                    deviceName = deviceName,
+                    bpm = if (live) bpm else null,
+                    elapsedMs = elapsedMs
+                )
+                BpmReading(bpm = if (live) bpm else null)
                 Spacer(modifier = Modifier.height(Dimens.Md))
                 when {
                     !live -> Text(
-                        text = when (state) {
-                            ConnectionState.RECONNECTING ->
-                                "Reconnecting ($reconnectAttempt of " +
-                                    "${BleHeartRateManager.MAX_RECONNECT_ATTEMPTS})"
-                            ConnectionState.CONNECTING -> "Connecting"
-                            else -> "Waiting for heart rate"
-                        },
+                        text = connectionStatus(state, reconnectAttempt),
                         style = HrmType.Body,
                         color = TextMuted
                     )
@@ -175,18 +126,7 @@ fun HeartRateScreen(bleManager: BleHeartRateManager, maxHr: Int?) {
             // Keep the trace on screen while the manager reconnects — the session is still
             // running, so blanking the graph would make a brief dropout look like a reset.
             if (sessionReadings.size >= 2) {
-                Column {
-                    Text(text = "Last 5 minutes", style = HrmType.BodySm, color = TextMuted)
-                    Spacer(modifier = Modifier.height(Dimens.Sm))
-                    HrGraph(
-                        readings = sessionReadings,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(130.dp),
-                        maxHr = maxHr,
-                        maxDurationMs = 300_000L
-                    )
-                }
+                RecentTrace(readings = sessionReadings, maxHr = maxHr)
             }
 
             // Compact mode lists only the zones actually reached, so this starts as a
@@ -207,6 +147,88 @@ fun HeartRateScreen(bleManager: BleHeartRateManager, maxHr: Int?) {
             )
         }
         SecondaryButton(text = "End session", onClick = { bleManager.disconnect() })
+    }
+}
+
+/** Connection dot and device name on the left, the session clock on the right. */
+@Composable
+private fun SessionHeader(deviceName: String?, bpm: Int?, elapsedMs: Long) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 44.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        PulseDot(bpm = bpm)
+        Spacer(modifier = Modifier.width(Dimens.Sm))
+        Text(
+            text = deviceName ?: "",
+            style = HrmType.Body,
+            color = TextMuted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        Text(text = formatClock(elapsedMs), style = HrmType.NumeralLg, color = TextPrimary)
+    }
+}
+
+/** The reading itself, centred. A null [bpm] shows a muted placeholder. */
+@Composable
+private fun BpmReading(bpm: Int?) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.Bottom
+    ) {
+        // An invisible twin of the unit label on the left, so the digits sit on the
+        // screen's centre line rather than the digits-plus-unit group.
+        Text(
+            text = "bpm",
+            style = HrmType.Body,
+            modifier = Modifier
+                .alpha(0f)
+                .clearAndSetSemantics {}
+        )
+        Spacer(modifier = Modifier.width(Dimens.Sm))
+        Text(
+            text = bpm?.toString() ?: "--",
+            style = HrmType.DisplayBpm,
+            color = if (bpm != null) TextPrimary else TextMuted,
+            maxLines = 1,
+            softWrap = false
+        )
+        Spacer(modifier = Modifier.width(Dimens.Sm))
+        Text(
+            text = "bpm",
+            style = HrmType.Body,
+            color = TextMuted,
+            modifier = Modifier.padding(bottom = Dimens.Md)
+        )
+    }
+}
+
+private fun connectionStatus(state: ConnectionState, reconnectAttempt: Int): String =
+    when (state) {
+        ConnectionState.RECONNECTING ->
+            "Reconnecting ($reconnectAttempt of ${BleHeartRateManager.MAX_RECONNECT_ATTEMPTS})"
+        ConnectionState.CONNECTING -> "Connecting"
+        else -> "Waiting for heart rate"
+    }
+
+@Composable
+private fun RecentTrace(readings: List<HrReading>, maxHr: Int?) {
+    Column {
+        Text(text = "Last 5 minutes", style = HrmType.BodySm, color = TextMuted)
+        Spacer(modifier = Modifier.height(Dimens.Sm))
+        HrGraph(
+            readings = readings,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(130.dp),
+            maxHr = maxHr,
+            maxDurationMs = 300_000L
+        )
     }
 }
 
