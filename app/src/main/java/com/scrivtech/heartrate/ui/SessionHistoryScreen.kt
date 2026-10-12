@@ -1,8 +1,6 @@
 package com.scrivtech.heartrate.ui
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,14 +9,18 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -28,14 +30,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.scrivtech.heartrate.R
 import com.scrivtech.heartrate.data.HrSession
 import com.scrivtech.heartrate.data.Storage
 import com.scrivtech.heartrate.data.maxHrForAge
 import com.scrivtech.heartrate.data.timeInZones
+import com.scrivtech.heartrate.ui.theme.Dimens
+import com.scrivtech.heartrate.ui.theme.Ground
+import com.scrivtech.heartrate.ui.theme.Hairline
+import com.scrivtech.heartrate.ui.theme.HrmType
+import com.scrivtech.heartrate.ui.theme.TextMuted
+import com.scrivtech.heartrate.ui.theme.TextPrimary
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -45,8 +52,6 @@ fun SessionHistoryScreen(
     storage: Storage,
     onBack: () -> Unit
 ) {
-    BackHandler { onBack() }
-
     var sessions by remember { mutableStateOf(storage.getSessions()) }
     // Zones are derived at render time from the stored readings, so sessions recorded
     // before an age was set still show a breakdown once one is, and changing the age
@@ -57,34 +62,20 @@ fun SessionHistoryScreen(
     var deletingSession by remember { mutableStateOf<HrSession?>(null) }
 
     if (renamingSession != null) {
+        val dismiss = {
+            renamingSession = null
+            renameInput = ""
+        }
         AlertDialog(
-            onDismissRequest = {
-                renamingSession = null
-                renameInput = ""
-            },
-            containerColor = Color(0xFF1E1E1E),
-            title = {
-                Text(text = "Rename Session", color = Color.White)
-            },
+            onDismissRequest = dismiss,
+            title = { Text(text = "Rename session") },
             text = {
                 OutlinedTextField(
                     value = renameInput,
                     // Bounded so a pasted wall of text cannot bloat the stored history.
                     onValueChange = { renameInput = it.take(MAX_SESSION_NAME_LENGTH) },
-                    placeholder = {
-                        Text(
-                            text = "Session name",
-                            color = Color.White.copy(alpha = 0.3f)
-                        )
-                    },
+                    label = { Text(text = "Session name") },
                     singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        cursorColor = Color(0xFFE53935),
-                        focusedBorderColor = Color(0xFFE53935),
-                        unfocusedBorderColor = Color.White.copy(alpha = 0.3f)
-                    ),
                     modifier = Modifier.fillMaxWidth()
                 )
             },
@@ -95,39 +86,21 @@ fun SessionHistoryScreen(
                             storage.renameSession(session.id, renameInput.trim())
                             sessions = storage.getSessions()
                         }
-                        renamingSession = null
-                        renameInput = ""
+                        dismiss()
                     }
                 ) {
-                    Text("Save", color = Color(0xFFE53935))
+                    Text(text = "Save")
                 }
             },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        renamingSession = null
-                        renameInput = ""
-                    }
-                ) {
-                    Text("Cancel", color = Color.White.copy(alpha = 0.5f))
-                }
-            }
+            dismissButton = { MutedTextButton(text = "Cancel", onClick = dismiss) }
         )
     }
 
     if (deletingSession != null) {
         AlertDialog(
             onDismissRequest = { deletingSession = null },
-            containerColor = Color(0xFF1E1E1E),
-            title = {
-                Text(text = "Delete Session", color = Color.White)
-            },
-            text = {
-                Text(
-                    text = "Are you sure you want to delete this session? This cannot be undone.",
-                    color = Color.White.copy(alpha = 0.7f)
-                )
-            },
+            title = { Text(text = "Delete session") },
+            text = { Text(text = "This session will be deleted. This cannot be undone.") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -138,13 +111,11 @@ fun SessionHistoryScreen(
                         deletingSession = null
                     }
                 ) {
-                    Text("Delete", color = Color(0xFFE53935))
+                    Text(text = "Delete")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { deletingSession = null }) {
-                    Text("Cancel", color = Color.White.copy(alpha = 0.5f))
-                }
+                MutedTextButton(text = "Cancel", onClick = { deletingSession = null })
             }
         )
     }
@@ -152,51 +123,45 @@ fun SessionHistoryScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
-            .padding(24.dp)
+            .background(Ground)
+            .safeDrawingPadding()
+            .padding(horizontal = Dimens.ScreenEdge)
     ) {
-        Spacer(modifier = Modifier.height(40.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+        IconButton(
+            onClick = onBack,
+            // Pulls the 48dp target left so the arrow itself sits on the screen edge.
+            modifier = Modifier
+                .padding(top = Dimens.Sm)
+                .offset(x = (-12).dp)
         ) {
-            TextButton(onClick = onBack) {
-                Text(
-                    text = "← Back",
-                    color = Color.White.copy(alpha = 0.6f),
-                    fontSize = 14.sp
-                )
-            }
-            Spacer(modifier = Modifier.weight(1f))
+            Icon(
+                painter = painterResource(R.drawable.ic_arrow_back),
+                contentDescription = "Back",
+                tint = TextPrimary,
+                modifier = Modifier.size(24.dp)
+            )
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
-
         Text(
-            text = "Session History",
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color.White
+            text = "Session history",
+            style = HrmType.Title,
+            color = TextPrimary,
+            modifier = Modifier.padding(bottom = Dimens.Md)
         )
-
-        Spacer(modifier = Modifier.height(16.dp))
+        HorizontalDivider(color = Hairline)
 
         if (sessions.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
                     text = "No sessions recorded yet",
-                    fontSize = 16.sp,
-                    color = Color.White.copy(alpha = 0.4f)
+                    style = HrmType.Body,
+                    color = TextMuted
                 )
             }
         } else {
             LazyColumn {
                 items(sessions, key = { it.id }) { session ->
-                    SessionCard(
+                    SessionEntry(
                         session = session,
                         maxHr = maxHr,
                         onRename = {
@@ -205,7 +170,6 @@ fun SessionHistoryScreen(
                         },
                         onDelete = { deletingSession = session }
                     )
-                    Spacer(modifier = Modifier.height(12.dp))
                 }
             }
         }
@@ -213,7 +177,7 @@ fun SessionHistoryScreen(
 }
 
 @Composable
-private fun SessionCard(
+private fun SessionEntry(
     session: HrSession,
     maxHr: Int?,
     onRename: () -> Unit,
@@ -222,122 +186,81 @@ private fun SessionCard(
     val dateFormat = remember { SimpleDateFormat("MMM d, yyyy  h:mm a", Locale.getDefault()) }
     val dateStr = remember(session.startTime) { dateFormat.format(Date(session.startTime)) }
     val durationStr = remember(session.durationMs) { formatDuration(session.durationMs) }
-    val displayName = session.sessionName.ifEmpty { dateStr }
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
-            ) {
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable { onRename() }
-                ) {
-                    Text(
-                        text = displayName,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color.White
-                    )
-                    if (session.sessionName.isNotEmpty()) {
-                        Text(
-                            text = "$dateStr  ·  ${session.deviceName}",
-                            fontSize = 12.sp,
-                            color = Color.White.copy(alpha = 0.4f)
-                        )
-                    } else {
-                        Text(
-                            text = session.deviceName,
-                            fontSize = 12.sp,
-                            color = Color.White.copy(alpha = 0.4f)
-                        )
-                    }
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = durationStr,
-                        fontSize = 14.sp,
-                        color = Color.White.copy(alpha = 0.6f)
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    // Naming happens here rather than at connect, so this needs to be
-                    // visible — tapping the title also works but nothing advertises it.
-                    Text(
-                        text = "Rename",
-                        fontSize = 12.sp,
-                        color = Color.White.copy(alpha = 0.5f),
-                        modifier = Modifier.clickable { onRename() }
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Delete",
-                        fontSize = 12.sp,
-                        color = Color(0xFFE53935).copy(alpha = 0.6f),
-                        modifier = Modifier.clickable { onDelete() }
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                StatItem("Avg", session.avgBpm)
-                StatItem("Max", session.maxBpm)
-                StatItem("Min", session.minBpm)
-            }
-
-            if (maxHr != null) {
-                val zoneTimes = remember(session.id, maxHr) {
-                    timeInZones(session.readings, maxHr)
-                }
-                Spacer(modifier = Modifier.height(16.dp))
+    Column(modifier = Modifier.padding(top = Dimens.ScreenEdge)) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Time in zones",
-                    fontSize = 12.sp,
-                    color = Color.White.copy(alpha = 0.4f)
+                    text = session.sessionName.ifEmpty { dateStr },
+                    style = HrmType.LabelLg,
+                    color = TextPrimary
                 )
-                Spacer(modifier = Modifier.height(10.dp))
-                ZoneBreakdown(timeInZones = zoneTimes)
-            }
-
-            if (session.readings.size >= 2) {
-                Spacer(modifier = Modifier.height(12.dp))
-                HrGraph(
-                    readings = session.readings,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(100.dp),
-                    showZoneColors = true,
-                    showTimeAxis = true
+                Text(
+                    text = if (session.sessionName.isNotEmpty()) {
+                        "$dateStr · ${session.deviceName}"
+                    } else {
+                        session.deviceName
+                    },
+                    style = HrmType.BodySm,
+                    color = TextMuted
                 )
             }
+            Spacer(modifier = Modifier.width(Dimens.Md))
+            Text(text = durationStr, style = HrmType.NumeralLg, color = TextPrimary)
         }
+
+        Spacer(modifier = Modifier.height(Dimens.Md))
+        Row(horizontalArrangement = Arrangement.spacedBy(Dimens.Section)) {
+            StatItem("Avg", session.avgBpm)
+            StatItem("Max", session.maxBpm)
+            StatItem("Min", session.minBpm)
+        }
+
+        if (maxHr != null) {
+            val zoneTimes = remember(session.id, maxHr) {
+                timeInZones(session.readings, maxHr)
+            }
+            Spacer(modifier = Modifier.height(Dimens.ScreenEdge))
+            ZoneBreakdown(timeInZones = zoneTimes)
+        }
+
+        if (session.readings.size >= 2) {
+            Spacer(modifier = Modifier.height(Dimens.ScreenEdge))
+            HrGraph(
+                readings = session.readings,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp),
+                maxHr = maxHr
+            )
+        }
+
+        // Rename and Delete sit at opposite ends of a full-height row, so a destructive
+        // action can never be hit by a thumb aiming for the benign one.
+        Row(modifier = Modifier.fillMaxWidth()) {
+            MutedTextButton(
+                text = "Rename",
+                onClick = onRename,
+                modifier = Modifier.offset(x = -Dimens.Sm)
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            MutedTextButton(
+                text = "Delete",
+                onClick = onDelete,
+                modifier = Modifier.offset(x = Dimens.Sm)
+            )
+        }
+        HorizontalDivider(color = Hairline)
     }
 }
 
+/** A labelled figure. Plain text colour: an average is not a zone, so it takes no colour. */
 @Composable
 private fun StatItem(label: String, value: Int) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = "$value",
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold,
-            color = hrZoneColor(value)
-        )
-        Text(
-            text = label,
-            fontSize = 11.sp,
-            color = Color.White.copy(alpha = 0.4f)
-        )
+    Row(verticalAlignment = Alignment.Bottom) {
+        Text(text = label, style = HrmType.BodySm, color = TextMuted)
+        Spacer(modifier = Modifier.width(Dimens.Xs))
+        Text(text = "$value", style = HrmType.NumeralLg, color = TextPrimary)
     }
 }
 

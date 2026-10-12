@@ -18,3 +18,20 @@ fun formatDuration(ms: Long): String {
         else -> "${seconds}s"
     }
 }
+
+/**
+ * Formats a running time as a clock ("24:10", "1:02:05") for the live session timer, where
+ * the digits must hold their place from one second to the next instead of changing shape
+ * the way [formatDuration] does when it drops a unit.
+ */
+fun formatClock(ms: Long): String {
+    val totalSeconds = ms / 1000
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    val seconds = (totalSeconds % 60).toString().padStart(2, '0')
+    return if (hours > 0) {
+        "$hours:${minutes.toString().padStart(2, '0')}:$seconds"
+    } else {
+        "$minutes:$seconds"
+    }
+}
